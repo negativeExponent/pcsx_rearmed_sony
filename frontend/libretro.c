@@ -287,7 +287,7 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
 void retro_get_system_info(struct retro_system_info *info)
 {
 	memset(info, 0, sizeof(*info));
-	info->library_name = "PCSX-ReARMed";
+	info->library_name = "PCSX-ReARMed_Classic";
 	info->library_version = "r22";
 	info->valid_extensions = "bin|cue|img|mdf|pbp|toc|cbn|m3u";
 	info->need_fullpath = true;
@@ -1285,4 +1285,40 @@ void retro_deinit(void)
 	SysClose();
 	free(vout_buf);
 	vout_buf = NULL;
+}
+
+int open_invalid_time;
+int g_opts;
+
+// dummy funcs
+void change_frame_Motionjpeg(int onoff)
+{
+}
+
+void set_scenes(int scenes)
+{}
+
+int SOUND_isPlaying(void)
+{
+	return 0;
+}
+
+void set_bo_trg(int onoff, int ch)
+{
+}
+
+void *pl_prepare_screenshot(int *w, int *h, int *bpp)
+{}
+
+int make_file_name(void)
+{
+	return 0;
+}
+
+void swap_cd(void)
+{}
+
+int writepng(const char *fname, unsigned short *src, int w, int h)
+{
+	return 0;
 }

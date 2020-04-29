@@ -40,8 +40,9 @@
 static void toggle_fast_forward(int force_off);
 static void check_profile(void);
 static void check_memcards(void);
-static int isOpenEnabled = 0;
+//static int isOpenEnabled = 0;
 #endif
+static int isOpenEnabled = 0;
 #ifndef BOOT_MSG
 #define BOOT_MSG "Booting up..."
 #endif
@@ -66,7 +67,7 @@ enum sched_action emu_action, emu_action_old;
 char hud_msg[64];
 int hud_new_msg;
 int isUnknowCdrom;
-int holdResetEvent;
+//int holdResetEvent;
 
 int display_mode = DISPLAY_MODE_DEFAULT;
 int language = LANGUAGE_DEFAULT;
@@ -232,7 +233,7 @@ void do_emu_action(void)
 #ifndef NO_FRONTEND
 	case SACTION_ENTER_MENU:
 		from_escape = 1;
-		toggle_fast_forward(1);
+		//toggle_fast_forward(1);
 		menu_loop();
 		return;
 	case SACTION_NEXT_SSLOT:
@@ -269,7 +270,7 @@ do_state_slot:
 		}
 		break;
 	case SACTION_FAST_FORWARD:
-		toggle_fast_forward(0);
+		//toggle_fast_forward(0);
 		plugin_call_rearmed_cbs();
 		break;
 	case SACTION_TOGGLE_FPS:
@@ -341,7 +342,7 @@ do_state_slot:
                                 return;
                         }
                 }
-                toggle_fast_forward(1);
+                //toggle_fast_forward(1);
                 swap_cd();
                 return;
         // add for power button

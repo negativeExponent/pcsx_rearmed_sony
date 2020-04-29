@@ -141,7 +141,7 @@ enum TITLE_NAME {
 struct INCLUDE_TITLE {
   char *m_cpCdromId;
   enum TITLE_NAME m_eTitleName;
-} INCLUDE_TITLE;
+};
 
 static struct INCLUDE_TITLE stTitleList[] = {
   {"SCPS10008" , ARC_THE_LAD_JP},
