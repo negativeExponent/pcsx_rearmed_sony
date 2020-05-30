@@ -407,7 +407,8 @@ void setTitleName(void) {
 }
 
 void setCdromId(void) {
-	char * fileName = strrchr(GetIsoFile(), '/');
+/* Do not re-create CdromID from filename */
+/*	char * fileName = strrchr(GetIsoFile(), '/');
 	int c = 0;
 	for (int i = 0; i < strlen(fileName); ++i) {
 		if (fileName[i] == '.' || c >= sizeof(CdromId) - 1) {
@@ -416,7 +417,7 @@ void setCdromId(void) {
 		if (isalnum(fileName[i])) {
 			CdromId[c++] = fileName[i];
 		}
-	}
+	}*/
 }
 
 void setDiscChangeType()
@@ -788,19 +789,38 @@ int CheckCdrom() {
 					return -1;
 			}
 		}
+		/* Workaround for Wild Arms EU/US which has non-standard string causing incorrect region detection */
+		if (exename[0] == 'E' && exename[1] == 'X' && exename[2] == 'E' && exename[3] == '\\') {
+			size_t offset = 4;
+			size_t i, len = strlen(exename) - offset;
+			for (i = 0; i < len; i++)
+				exename[i] = exename[i + offset];
+			exename[i] = '\0';
+		}
 	} else if (GetCdromFile(mdir, time, "PSX.EXE;1") != -1) {
 		strcpy(exename, "PSX.EXE;1");
 		strcpy(CdromId, "SLUS99999");
 	} else
 		return -1;		// SYSTEM.CNF and PSX.EXE not found
 
-	char * fileName = strrchr(GetIsoFile(), '/');
+	/*char * fileName = strrchr(GetIsoFile(), '/');
 	c = 0;
 	for (i = 0; i < strlen(fileName); ++i) {
 		if (fileName[i] == '.' || c >= sizeof(CdromId) - 1)
 			break;
 		if (isalnum(fileName[i]))
 			CdromId[c++] = fileName[i];
+	}*/
+
+	if (CdromId[0] == '\0') {
+		len = strlen(exename);
+		c = 0;
+		for (i = 0; i < len; ++i) {
+			if (exename[i] == ';' || c >= sizeof(CdromId) - 1)
+				break;
+			if (isalnum(exename[i]))
+				CdromId[c++] = exename[i];
+		}
 	}
 
 	if (CdromId[0] == '\0')

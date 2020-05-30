@@ -33,6 +33,9 @@
 #include "revision.h"
 #include "libretro.h"
 
+#include "../libpcsxcore/title.h"
+extern int isTitleName(enum TITLE_NAME argTitleName);
+
 static retro_video_refresh_t video_cb;
 static retro_input_poll_t input_poll_cb;
 static retro_input_state_t input_state_cb;
@@ -894,6 +897,11 @@ bool retro_load_game(const struct retro_game_info *info)
 		}
 	}
 
+	if (isTitleName(WILD_ARMS_JP))
+		SysPrintf("Game is Wild Arms (J)");
+	if (isTitleName(WILD_ARMS_US))
+		SysPrintf("Game is Wild Arms (U)");
+
 	return true;
 }
 
@@ -1296,7 +1304,8 @@ void change_frame_Motionjpeg(int onoff)
 }
 
 void set_scenes(int scenes)
-{}
+{
+}
 
 int SOUND_isPlaying(void)
 {
@@ -1308,7 +1317,8 @@ void set_bo_trg(int onoff, int ch)
 }
 
 void *pl_prepare_screenshot(int *w, int *h, int *bpp)
-{}
+{
+}
 
 int make_file_name(void)
 {
@@ -1316,7 +1326,8 @@ int make_file_name(void)
 }
 
 void swap_cd(void)
-{}
+{
+}
 
 int writepng(const char *fname, unsigned short *src, int w, int h)
 {
