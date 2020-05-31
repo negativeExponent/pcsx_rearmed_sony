@@ -250,6 +250,7 @@ void retro_set_environment(retro_environment_t cb)
 {
    static const struct retro_variable vars[] = {
       { "pcsx_rearmed_frameskip", "Frameskip; 0|1|2|3" },
+	  { "pcsx_rearmed_memcard2", "Enable Second Memory Card (Shared); disabled|enabled" },
       { "pcsx_rearmed_region", "Region; Auto|NTSC|PAL" },
       { "pcsx_rearmed_pad1type", "Pad 1 Type; standard|analog" },
       { "pcsx_rearmed_pad2type", "Pad 2 Type; standard|analog" },
@@ -1212,6 +1213,52 @@ static void check_system_specs(void)
    environ_cb(RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL, &level);
 }
 
+static int init_memcards(void)
+{
+   int ret = 0;
+   const char *dir;
+   struct retro_variable var = { .key = "pcsx_rearmed_memcard2", .value = NULL };
+   static const char CARD2_FILE[] = "pcsx-card2.mcd";
+
+   // Memcard2 will be handled and is re-enabled if needed using core
+   // operations.
+   // Memcard1 is handled by libretro, doing this will set core to
+   // skip file io operations for memcard1 like SaveMcd
+   snprintf(Config.Mcd1, sizeof(Config.Mcd1), "none");
+   snprintf(Config.Mcd2, sizeof(Config.Mcd2), "none");
+   init_memcard(Mcd1Data);
+   // Memcard 2 is managed by the emulator on the filesystem,
+   // There is no need to initialize Mcd2Data like Mcd1Data.
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      SysPrintf("Memcard 2: %s\n", var.value);
+      if (memcmp(var.value, "enabled", 7) == 0)
+      {
+         if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) && dir)
+         {
+            if (strlen(dir) + strlen(CARD2_FILE) + 2 > sizeof(Config.Mcd2))
+            {
+               SysPrintf("Path '%s' is too long. Cannot use memcard 2. Use a shorter path.\n", dir);
+               ret = -1;
+            }
+            else
+            {
+               McdDisable[1] = 0;
+               snprintf(Config.Mcd2, sizeof(Config.Mcd2), "%s/%s", dir, CARD2_FILE);
+               SysPrintf("Use memcard 2: %s\n", Config.Mcd2);
+            }
+         }
+         else
+         {
+            SysPrintf("Could not get save directory! Could not create memcard 2.");
+            ret = -1;
+         }
+      }
+   }
+   return ret;
+}
+
 void retro_init(void)
 {
 	const char *bios[] = { "scph1001", "scph5501", "scph7001" };
@@ -1226,7 +1273,11 @@ void retro_init(void)
 #endif
 
 	ret = emu_core_preinit();
+
+	ret |= init_memcards();
+
 	ret |= emu_core_init();
+
 	if (ret != 0) {
 		SysPrintf("PCSX init failed.\n");
 		exit(1);
@@ -1279,10 +1330,6 @@ void retro_init(void)
 #endif
 	pl_rearmed_cbs.gpu_peops.iUseDither = 1;
 	spu_config.iUseFixedUpdates = 1;
-
-	McdDisable[0] = 0;
-	McdDisable[1] = 1;
-	init_memcard(Mcd1Data);
 
 	SaveFuncs.open = save_open;
 	SaveFuncs.read = save_read;
