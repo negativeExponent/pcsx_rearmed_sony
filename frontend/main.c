@@ -221,6 +221,7 @@ void do_emu_action(void)
 {
 	int ret;
 
+#ifndef HAVE_LIBRETRO
 	emu_action_old = emu_action;
 
 	switch (emu_action) {
@@ -403,6 +404,7 @@ do_state_slot:
 	}
 
 	hud_new_msg = 3;
+#endif /* !HAVE_LIBRETRO */
 }
 
 static char basic_lcase(char c)
@@ -858,6 +860,8 @@ int main(int argc, char *argv[])
 		menu_loop();
 
 	pl_start_watchdog();
+
+#ifndef HAVE_LIBRETR0
         // create thread for watching communication file
         if (create_power_off_thread() != 0) {
                printf("failed to create power off thread\n");
@@ -871,6 +875,7 @@ int main(int argc, char *argv[])
                printf("failed to create thread for watching cpu temperature\n");
                return -1;
         }
+#endif
 
 	StartCheckOpen();
 
@@ -1289,6 +1294,7 @@ void SysCloseLibrary(void *lib) {
 #endif
 }
 
+#ifndef HAVE_LIBRETRO
 static int check_poweroff_event(int power_fd) {
 	int i = 0;
 	char buffer[BUF_LEN];
@@ -1451,3 +1457,4 @@ int begin_watch_cpu_temperature(void)
 
         return ret;
 }
+#endif (!HAVE_LIBRETRO)
