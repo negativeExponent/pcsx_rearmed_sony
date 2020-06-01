@@ -1050,11 +1050,11 @@ void cdrInterrupt() {
 			}
 			cdr.Result[0] |= (cdr.Result[1] >> 4) & 0x08;
 
-			switch (CdromId[2]) {
-			case 'P':
-			case 'p':
-				strncpy((char *)&cdr.Result[4], "SCEI", 4);
-				break;
+//			switch (CdromId[2]) {
+//			case 'P':
+//			case 'p':
+//				strncpy((char *)&cdr.Result[4], "SCEI", 4);
+//				break;
 // To compliance the requirement, remove trademark notification
 //			case 'E':
 //			case 'e':
@@ -1064,10 +1064,12 @@ void cdrInterrupt() {
 //			case 'u':
 //				strncpy((char *)&cdr.Result[4], "SCEA", 4);
 //				break;
-			default:
-				strncpy((char *)&cdr.Result[4], "    ", 4);
-				break;
-			}
+//			default:
+//				strncpy((char *)&cdr.Result[4], "    ", 4);
+//				break;
+//			}
+			/* This adds the string "PCSX" in Playstation bios boot screen */
+			memcpy((char *)&cdr.Result[4], "PCSX", 4);
 			cdr.Stat = Complete;
 			break;
 
