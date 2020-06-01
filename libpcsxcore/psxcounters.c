@@ -24,8 +24,7 @@
 #include "psxcounters.h"
 #include "gpu.h"
 #include "debug.h"
-#include "../libpcsxcore/title.h"
-int isTitleName(enum TITLE_NAME argTitleName);
+#include "title.h"
 
 /******************************************************************************/
 

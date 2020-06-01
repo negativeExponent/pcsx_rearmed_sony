@@ -93,6 +93,10 @@ void set_cd_image(const char *fname);
 int create_power_off_thread(void);
 void power_off(void);
 
+int make_file_name(void);
+int writepng(const char *fname, unsigned short *src, int w, int h);
+int SOUND_isPlaying(void);
+
 extern unsigned long gpuDisp;
 extern int ready_to_go, g_emu_want_quit, g_emu_resetting;
 

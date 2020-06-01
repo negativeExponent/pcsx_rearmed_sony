@@ -22,6 +22,7 @@
 #include <sys/time.h> // gettimeofday in xa.c
 #define THREAD_ENABLED 1
 #endif
+#include <math.h>
 #include "stdafx.h"
 
 #define _IN_SPU

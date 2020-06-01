@@ -174,6 +174,8 @@ static void set_default_paths(void)
 	strcpy(Config.Net, "Disabled");
 }
 
+static int emu_auto_save_state(int slot);
+
 void emu_set_default_config(void)
 {
 	// try to set sane config on which most games work
@@ -1002,7 +1004,7 @@ int emu_check_state(int slot)
 	return CheckState(fname);
 }
 
-int emu_auto_save_state(int slot)
+static int emu_auto_save_state(int slot)
 {
 	char fname[MAXPATHLEN];
 	int ret;

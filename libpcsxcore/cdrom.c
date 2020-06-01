@@ -180,6 +180,9 @@ int xaSave_iLeftVolume;
 int xaSave_iRightVolume;
 unsigned char State_CdlPause;
 
+static void check_scenes(unsigned char arg1, unsigned char arg2, unsigned char arg3);
+static void check_scenesforSPU(unsigned char arg1, unsigned char arg2, unsigned char arg3);
+
 #define ARC_BUFF_MAX (10)
 static unsigned char arcSecBuf[ARC_BUFF_MAX][DATA_SIZE];
 
@@ -2684,7 +2687,7 @@ int mgs_disk1_scenes_us[][3] = {
 		{0x073234,0x075411,MSG_SCENE8}
 };
 
-void check_scenes(unsigned char arg1, unsigned char arg2, unsigned char arg3) {
+static void check_scenes(unsigned char arg1, unsigned char arg2, unsigned char arg3) {
 	int i,hit = 0;
 	int track = arg1 << 16 | arg2 << 8 | arg3;
 
@@ -2720,7 +2723,7 @@ int wa_us[][2] = {
 		{0x385011,0x411741}
 };
 
-void check_scenesforSPU(unsigned char arg1, unsigned char arg2, unsigned char arg3) {
+static void check_scenesforSPU(unsigned char arg1, unsigned char arg2, unsigned char arg3) {
 
 	int i, hit = 0;
 	int track = arg1 << 16 | arg2 << 8 | arg3;

@@ -24,6 +24,8 @@
 #include "plat.h"
 #include "posix.h"
 
+#include "../libpcsxcore/title.h"
+
 #define DISK_IMG_DIR "/usr/sony/share/data/images/Disk/"
 
 static char static_buff[64];

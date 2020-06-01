@@ -35,7 +35,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <time.h>
+#include <sys/time.h>
 
 char CdromId[10] = "";
 char CdromId_old[10] = "";
@@ -389,7 +389,7 @@ void setTitleName(void) {
   int i = 0;
 
   initTitleName();
-  setCdromId();
+  //setCdromId();
   while(*(stTitleList[i].m_cpCdromId)) {
     if(strcmp(stTitleList[i].m_cpCdromId , CdromId) == 0) {
       g_eTitleName = stTitleList[i].m_eTitleName;

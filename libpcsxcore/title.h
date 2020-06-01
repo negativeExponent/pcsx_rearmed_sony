@@ -296,4 +296,6 @@ static enum TITLE_NAME g_eTitleName = TITLE_NAME_NONE;
 #define PARASITE_EVE_JP_ENABLE_VOLUME 0x600
 #define PARASITE_EVE_JP_DISABLE_VOLUME 0xffff8000
 
+int isTitleName(enum TITLE_NAME argTitleName);
+
 #endif
