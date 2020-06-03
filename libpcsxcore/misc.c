@@ -839,7 +839,7 @@ int CheckCdrom() {
 	SysPrintf(_("CD-ROM ID: %.9s\n"), CdromId);
 	SysPrintf(_("CD-ROM EXE Name: %.255s\n"), exename);
 
-	strncpy(CdromPath, GetIsoFile(), sizeof(CdromPath));
+	/*strncpy(CdromPath, GetIsoFile(), sizeof(CdromPath));
 	if (CdromPath_old[0] == '\0' || CdromLabel_old[0] == '\0' || CdromId_old[0] == '\0' || !(g_opts & OPT_AUTOSAVE)) {
 			strncpy(CdromPath_old, CdromPath, sizeof(CdromPath));
 			strncpy(CdromLabel_old, CdromLabel, sizeof(CdromLabel));
@@ -849,12 +849,12 @@ int CheckCdrom() {
 		emu_set_action(SACTION_RESET_EVENT);
 		holdResetEvent = 0;
 	}
-	isUnknownCdrom = 0;
+	isUnknownCdrom = 0;*/
 	BuildPPFCache();
 
 	setTitleName();
 
-	setDiscChangeType();
+	//setDiscChangeType();
 	return 0;
 }
 

@@ -1457,4 +1457,4 @@ int begin_watch_cpu_temperature(void)
 
         return ret;
 }
-#endif (!HAVE_LIBRETRO)
+#endif /* !HAVE_LIBRETRO */

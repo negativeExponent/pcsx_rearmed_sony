@@ -22,6 +22,7 @@
 #include "externals.h"
 #include "registers.h"
 #include "spu_config.h"
+#include "../frontend/main.h"
 #include "../../libpcsxcore/title.h"
 
 static void SoundOn(int start,int end,unsigned short val);

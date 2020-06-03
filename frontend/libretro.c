@@ -60,109 +60,195 @@ int in_keystate;
 int in_enable_vibration = 1;
 
 /* PSX max resolution is 640x512, but with enhancement it's 1024x512 */
-#define VOUT_MAX_WIDTH 1024
-#define VOUT_MAX_HEIGHT 512
+#define TV_PAL                      (33868800.0 / 677343.75) // 50.00238
+#define TV_NTSC                     (33868800.0 / 565031.25) // 59.94146
+
+#define NTSC_HEIGHT                 240
+#define PAL_HEIGHT                  288
+
+#define NTSC_HEIGHT_DOUBLE          (NTSC_HEIGHT * 2)
+#define PAL_HEIGHT_DOUBLE           (PAL_HEIGHT * 2)
+
+#define VOUT_WIDTH                  320
+#define VOUT_HEIGHT                 (is_pal_mode ? PAL_HEIGHT : NTSC_HEIGHT)
+
+#define VOUT_MAX_WIDTH              1024
+#define VOUT_MAX_HEIGHT             576
+
+#define SAMPLE_RATE                 44100.0
+
+static int visible_height           = NTSC_HEIGHT;
+static int system_height            = NTSC_HEIGHT;
+
+static boolean update_geometry      = FALSE;
+static boolean update_timing        = FALSE;
+
+enum opt_aspect_ratio {
+    FORCE_4_3 = 0,
+    AUTO_CORRECT
+};
+
+static int option_aspect_ratio     = FORCE_4_3;
 
 static void init_memcard(char *mcd_data)
 {
-	unsigned off = 0;
-	unsigned i;
+    unsigned off = 0;
+    unsigned i;
 
-	memset(mcd_data, 0, MCD_SIZE);
+    memset(mcd_data, 0, MCD_SIZE);
 
-	mcd_data[off++] = 'M';
-	mcd_data[off++] = 'C';
-	off += 0x7d;
-	mcd_data[off++] = 0x0e;
+    mcd_data[off++] = 'M';
+    mcd_data[off++] = 'C';
+    off += 0x7d;
+    mcd_data[off++] = 0x0e;
 
-	for (i = 0; i < 15; i++) {
-		mcd_data[off++] = 0xa0;
-		off += 0x07;
-		mcd_data[off++] = 0xff;
-		mcd_data[off++] = 0xff;
-		off += 0x75;
-		mcd_data[off++] = 0xa0;
-	}
+    for (i = 0; i < 15; i++) {
+        mcd_data[off++] = 0xa0;
+        off += 0x07;
+        mcd_data[off++] = 0xff;
+        mcd_data[off++] = 0xff;
+        off += 0x75;
+        mcd_data[off++] = 0xa0;
+    }
 
-	for (i = 0; i < 20; i++) {
-		mcd_data[off++] = 0xff;
-		mcd_data[off++] = 0xff;
-		mcd_data[off++] = 0xff;
-		mcd_data[off++] = 0xff;
-		off += 0x04;
-		mcd_data[off++] = 0xff;
-		mcd_data[off++] = 0xff;
-		off += 0x76;
-	}
+    for (i = 0; i < 20; i++) {
+        mcd_data[off++] = 0xff;
+        mcd_data[off++] = 0xff;
+        mcd_data[off++] = 0xff;
+        mcd_data[off++] = 0xff;
+        off += 0x04;
+        mcd_data[off++] = 0xff;
+        mcd_data[off++] = 0xff;
+        off += 0x76;
+    }
+}
+
+static float get_aspect_ratio(void)
+{
+    float ret = (4.0f / 3.0f);
+    if (option_aspect_ratio == AUTO_CORRECT)
+    {
+        // from beetle psx:
+        // Calculate horizontal scaling in terms of gpu clock cycles
+        ret *= (2560.0 / 2800.0);
+        ret *= ((float)vout_height / (float)visible_height);
+    }
+    return ret;
+}
+
+static void get_system_av_info(struct retro_system_av_info *info)
+{
+    info->geometry.base_width   = VOUT_WIDTH;
+    info->geometry.base_height  = system_height;
+    info->geometry.max_width    = VOUT_MAX_WIDTH;
+    info->geometry.max_height   = VOUT_MAX_HEIGHT;
+    info->geometry.aspect_ratio = get_aspect_ratio();
+    info->timing.fps            = retro_get_region() ? TV_PAL : TV_NTSC;
+    info->timing.sample_rate    = SAMPLE_RATE;
 }
 
 static int vout_open(void)
 {
-	return 0;
+    return 0;
 }
 
 static void vout_set_mode(int w, int h, int raw_w, int raw_h, int bpp)
 {
-	vout_width = w;
-	vout_height = h;
+    static int last_width;
+    static int last_height;
+    static int last_vheight;
+
+    vout_width         = w;
+    visible_height     = h;
+
+    if (h <= NTSC_HEIGHT)
+    {
+       vout_height     = NTSC_HEIGHT;
+       system_height   = NTSC_HEIGHT;
+    }
+    else if (h > NTSC_HEIGHT && h <= PAL_HEIGHT)
+    {
+       vout_height     = PAL_HEIGHT;
+       system_height   = PAL_HEIGHT;
+    }
+    else if (h > PAL_HEIGHT && h <= NTSC_HEIGHT_DOUBLE)
+    {
+       vout_height     = NTSC_HEIGHT_DOUBLE;
+       system_height   = NTSC_HEIGHT;
+    }
+    else if (h > NTSC_HEIGHT_DOUBLE && h <= PAL_HEIGHT_DOUBLE)
+    {
+       vout_height     = PAL_HEIGHT_DOUBLE;
+       system_height   = PAL_HEIGHT;
+    }
+
+    if (vout_width != last_width | vout_height != last_height | last_vheight != visible_height)
+        update_geometry = true;
+
+    if (h != last_height || w != last_width)
+        SysPrintf("framebuffer: %dx%d aspect=%.3f\n", w, h, get_aspect_ratio());
+
+    last_width   = vout_width;
+    last_height  = vout_height;
+    last_vheight = visible_height;
 }
 
 #ifndef FRONTEND_SUPPORTS_RGB565
 static void convert(void *buf, size_t bytes)
 {
-	unsigned int i, v, *p = buf;
+    unsigned int i, v, *p = buf;
 
-	for (i = 0; i < bytes / 4; i++) {
-		v = p[i];
-		p[i] = (v & 0x001f001f) | ((v >> 1) & 0x7fe07fe0);
-	}
+    for (i = 0; i < bytes / 4; i++) {
+        v = p[i];
+        p[i] = (v & 0x001f001f) | ((v >> 1) & 0x7fe07fe0);
+    }
 }
 #endif
 
 static void vout_flip(const void *vram, int stride, int bgr24, int w, int h)
 {
-	unsigned short *dest = vout_buf;
-	const unsigned short *src = vram;
-	int dstride = vout_width, h1 = h;
-	int doffs;
+    unsigned short *dest = vout_buf;
+    const unsigned short *src = vram;
+    int dstride = vout_width, h1 = h;
+    int doffs;
 
-	if (vram == NULL) {
-		// blanking
-		memset(vout_buf, 0, dstride * h * 2);
-		goto out;
-	}
+    if (vram == NULL) {
+        // blanking
+        memset(vout_buf, 0, dstride * vout_height * 2);
+        goto out;
+    }
 
-	doffs = (vout_height - h) * dstride;
-	doffs += (dstride - w) / 2 & ~1;
-	if (doffs != vout_doffs_old) {
-		// clear borders
-		memset(vout_buf, 0, dstride * h * 2);
-		vout_doffs_old = doffs;
-	}
-	dest += doffs;
+    doffs = ((vout_height - h) / 2) * dstride;
+    doffs += (dstride - w) / 2 & ~1;
+    if (doffs != vout_doffs_old) {
+        // clear borders
+        memset(vout_buf, 0, dstride * vout_height * 2);
+        vout_doffs_old = doffs;
+    }
+    dest += doffs;
 
-	if (bgr24)
-	{
-		// XXX: could we switch to RETRO_PIXEL_FORMAT_XRGB8888 here?
-		for (; h1-- > 0; dest += dstride, src += stride)
-		{
-			bgr888_to_rgb565(dest, src, w * 3);
-		}
-	}
-	else
-	{
-		for (; h1-- > 0; dest += dstride, src += stride)
-		{
-			bgr555_to_rgb565(dest, src, w * 2);
-		}
-	}
+    if (bgr24)
+    {
+        // XXX: could we switch to RETRO_PIXEL_FORMAT_XRGB8888 here?
+        for (; h1-- > 0; dest += dstride, src += stride)
+        {
+            bgr888_to_rgb565(dest, src, w * 3);
+        }
+    }
+    else
+    {
+        for (; h1-- > 0; dest += dstride, src += stride)
+        {
+            bgr555_to_rgb565(dest, src, w * 2);
+        }
+    }
 
 out:
 #ifndef FRONTEND_SUPPORTS_RGB565
-	convert(vout_buf, vout_width * vout_height * 2);
+    convert(vout_buf, vout_width * vout_height * 2);
 #endif
-	vout_fb_dirty = 1;
-	pl_rearmed_cbs.flip_cnt++;
+    vout_fb_dirty = 1;
+    pl_rearmed_cbs.flip_cnt++;
 }
 
 static void vout_close(void)
@@ -171,35 +257,35 @@ static void vout_close(void)
 
 static void *pl_mmap(unsigned int size)
 {
-	return psxMap(0, size, 0, MAP_TAG_VRAM);
+    return psxMap(0, size, 0, MAP_TAG_VRAM);
 }
 
 static void pl_munmap(void *ptr, unsigned int size)
 {
-	psxUnmap(ptr, size, MAP_TAG_VRAM);
+    psxUnmap(ptr, size, MAP_TAG_VRAM);
 }
 
 struct rearmed_cbs pl_rearmed_cbs = {
-	.pl_vout_open = vout_open,
-	.pl_vout_set_mode = vout_set_mode,
-	.pl_vout_flip = vout_flip,
-	.pl_vout_close = vout_close,
-	.mmap = pl_mmap,
-	.munmap = pl_munmap,
-	/* from psxcounters */
-	.gpu_hcnt = &hSyncCount,
-	.gpu_frame_count = &frame_counter,
+    .pl_vout_open = vout_open,
+    .pl_vout_set_mode = vout_set_mode,
+    .pl_vout_flip = vout_flip,
+    .pl_vout_close = vout_close,
+    .mmap = pl_mmap,
+    .munmap = pl_munmap,
+    /* from psxcounters */
+    .gpu_hcnt = &hSyncCount,
+    .gpu_frame_count = &frame_counter,
 };
 
 void pl_frame_limit(void)
 {
-	/* called once per frame, make psxCpu->Execute() above return */
-	stop = 1;
+    /* called once per frame, make psxCpu->Execute() above return */
+    stop = 1;
 }
 
 void pl_timing_prepare(int is_pal)
 {
-	is_pal_mode = is_pal;
+    is_pal_mode = is_pal;
 }
 
 void plat_trigger_vibrate(int pad, int low, int high)
@@ -215,7 +301,7 @@ void pl_update_gun(int *xn, int *yn, int *xres, int *yres, int *in)
 /* sound calls */
 static int snd_init(void)
 {
-	return 0;
+    return 0;
 }
 
 static void snd_finish(void)
@@ -224,22 +310,22 @@ static void snd_finish(void)
 
 static int snd_busy(void)
 {
-	return 0;
+    return 0;
 }
 
 static void snd_feed(void *buf, int bytes)
 {
-	if (audio_batch_cb != NULL)
-		audio_batch_cb(buf, bytes / 4);
+    if (audio_batch_cb != NULL)
+        audio_batch_cb(buf, bytes / 4);
 }
 
 void out_register_libretro(struct out_driver *drv)
 {
-	drv->name = "libretro";
-	drv->init = snd_init;
-	drv->finish = snd_finish;
-	drv->busy = snd_busy;
-	drv->feed = snd_feed;
+    drv->name = "libretro";
+    drv->init = snd_init;
+    drv->finish = snd_finish;
+    drv->busy = snd_busy;
+    drv->feed = snd_feed;
 }
 
 /* libretro */
@@ -247,8 +333,9 @@ void retro_set_environment(retro_environment_t cb)
 {
    static const struct retro_variable vars[] = {
       { "pcsx_rearmed_frameskip", "Frameskip; 0|1|2|3" },
-	  { "pcsx_rearmed_memcard2", "Enable Second Memory Card (Shared); disabled|enabled" },
+      { "pcsx_rearmed_memcard2", "Enable Second Memory Card (Shared); disabled|enabled" },
       { "pcsx_rearmed_region", "Region; Auto|NTSC|PAL" },
+      { "pcsx_rearmed_aspect_ratio", "Aspect Ratio; Auto|Force 4:3" },
       { "pcsx_rearmed_pad1type", "Pad 1 Type; standard|analog" },
       { "pcsx_rearmed_pad2type", "Pad 2 Type; standard|analog" },
 #ifndef DRC_DISABLE
@@ -278,7 +365,7 @@ void retro_set_input_state(retro_input_state_t cb) { input_state_cb = cb; }
 
 unsigned retro_api_version(void)
 {
-	return RETRO_API_VERSION;
+    return RETRO_API_VERSION;
 }
 
 void retro_set_controller_port_device(unsigned port, unsigned device)
@@ -287,148 +374,142 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
 
 void retro_get_system_info(struct retro_system_info *info)
 {
-	memset(info, 0, sizeof(*info));
-	info->library_name = "PCSX-ReARMed_Classic";
-	info->library_version = "r22";
-	info->valid_extensions = "bin|cue|img|mdf|pbp|toc|cbn|m3u";
-	info->need_fullpath = true;
+    memset(info, 0, sizeof(*info));
+    info->library_name = "PCSX-ReARMed_Classic";
+    info->library_version = "r22";
+    info->valid_extensions = "bin|cue|img|mdf|pbp|toc|cbn|m3u";
+    info->need_fullpath = true;
 }
 
 void retro_get_system_av_info(struct retro_system_av_info *info)
 {
-	memset(info, 0, sizeof(*info));
-	info->timing.fps            = is_pal_mode ? 50 : 60;
-	info->timing.sample_rate    = 44100;
-	info->geometry.base_width   = 320;
-	info->geometry.base_height  = 240;
-	info->geometry.max_width    = VOUT_MAX_WIDTH;
-	info->geometry.max_height   = VOUT_MAX_HEIGHT;
-	info->geometry.aspect_ratio = 4.0 / 3.0;
+    memset(info, 0, sizeof(*info));
+    get_system_av_info(info);
 }
 
 /* savestates */
-size_t retro_serialize_size(void) 
-{ 
-	// it's currently 4380651-4397047 bytes,
-	// but have some reserved for future
-	return 0x440000;
+size_t retro_serialize_size(void)
+{
+    // it's currently 4380651-4397047 bytes,
+    // but have some reserved for future
+    return 0x440000;
 }
 
 struct save_fp {
-	char *buf;
-	size_t pos;
-	int is_write;
+    char *buf;
+    size_t pos;
+    int is_write;
 };
 
 static void *save_open(const char *name, const char *mode)
 {
-	struct save_fp *fp;
+    struct save_fp *fp;
 
-	if (name == NULL || mode == NULL)
-		return NULL;
+    if (name == NULL || mode == NULL)
+        return NULL;
 
-	fp = malloc(sizeof(*fp));
-	if (fp == NULL)
-		return NULL;
+    fp = malloc(sizeof(*fp));
+    if (fp == NULL)
+        return NULL;
 
-	fp->buf = (char *)name;
-	fp->pos = 0;
-	fp->is_write = (mode[0] == 'w' || mode[1] == 'w');
+    fp->buf = (char *)name;
+    fp->pos = 0;
+    fp->is_write = (mode[0] == 'w' || mode[1] == 'w');
 
-	return fp;
+    return fp;
 }
 
 static int save_read(void *file, void *buf, u32 len)
 {
-	struct save_fp *fp = file;
-	if (fp == NULL || buf == NULL)
-		return -1;
+    struct save_fp *fp = file;
+    if (fp == NULL || buf == NULL)
+        return -1;
 
-	memcpy(buf, fp->buf + fp->pos, len);
-	fp->pos += len;
-	return len;
+    memcpy(buf, fp->buf + fp->pos, len);
+    fp->pos += len;
+    return len;
 }
 
 static int save_write(void *file, const void *buf, u32 len)
 {
-	struct save_fp *fp = file;
-	if (fp == NULL || buf == NULL)
-		return -1;
+    struct save_fp *fp = file;
+    if (fp == NULL || buf == NULL)
+        return -1;
 
-	memcpy(fp->buf + fp->pos, buf, len);
-	fp->pos += len;
-	return len;
+    memcpy(fp->buf + fp->pos, buf, len);
+    fp->pos += len;
+    return len;
 }
 
 static long save_seek(void *file, long offs, int whence)
 {
-	struct save_fp *fp = file;
-	if (fp == NULL)
-		return -1;
+    struct save_fp *fp = file;
+    if (fp == NULL)
+        return -1;
 
-	switch (whence) {
-	case SEEK_CUR:
-		fp->pos += offs;
-		return fp->pos;
-	case SEEK_SET:
-		fp->pos = offs;
-		return fp->pos;
-	default:
-		return -1;
-	}
+    switch (whence) {
+    case SEEK_CUR:
+        fp->pos += offs;
+        return fp->pos;
+    case SEEK_SET:
+        fp->pos = offs;
+        return fp->pos;
+    default:
+        return -1;
+    }
 }
 
 static void save_close(void *file)
 {
-	struct save_fp *fp = file;
-	size_t r_size = retro_serialize_size();
-	if (fp == NULL)
-		return;
+    struct save_fp *fp = file;
+    size_t r_size = retro_serialize_size();
+    if (fp == NULL)
+        return;
 
-	if (fp->pos > r_size)
-		SysPrintf("ERROR: save buffer overflow detected\n");
-	else if (fp->is_write && fp->pos < r_size)
-		// make sure we don't save trash in leftover space
-		memset(fp->buf + fp->pos, 0, r_size - fp->pos);
-	free(fp);
+    if (fp->pos > r_size)
+        SysPrintf("ERROR: save buffer overflow detected\n");
+    else if (fp->is_write && fp->pos < r_size)
+        // make sure we don't save trash in leftover space
+        memset(fp->buf + fp->pos, 0, r_size - fp->pos);
+    free(fp);
 }
 
 bool retro_serialize(void *data, size_t size)
-{ 
-	int ret = SaveState(data);
-	return ret == 0 ? true : false;
+{
+    int ret = SaveState(data);
+    return ret == 0 ? true : false;
 }
 
 bool retro_unserialize(const void *data, size_t size)
 {
-	int ret = LoadState(data);
-	return ret == 0 ? true : false;
+    int ret = LoadState(data);
+    return ret == 0 ? true : false;
 }
 
 /* cheats */
 void retro_cheat_reset(void)
 {
-	ClearAllCheats();
+    ClearAllCheats();
 }
 
 void retro_cheat_set(unsigned index, bool enabled, const char *code)
 {
-	char buf[256];
-	int ret;
+    char buf[256];
+    int ret;
 
-	// cheat funcs are destructive, need a copy..
-	strncpy(buf, code, sizeof(buf));
-	buf[sizeof(buf) - 1] = 0;
+    // cheat funcs are destructive, need a copy..
+    strncpy(buf, code, sizeof(buf));
+    buf[sizeof(buf) - 1] = 0;
 
-	if (index < NumCheats)
-		ret = EditCheat(index, "", buf);
-	else
-		ret = AddCheat("", buf);
+    if (index < NumCheats)
+        ret = EditCheat(index, "", buf);
+    else
+        ret = AddCheat("", buf);
 
-	if (ret != 0)
-		SysPrintf("Failed to set cheat %#u\n", index);
-	else if (index < NumCheats)
-		Cheats[index].Enabled = enabled;
+    if (ret != 0)
+        SysPrintf("Failed to set cheat %#u\n", index);
+    else if (index < NumCheats)
+        Cheats[index].Enabled = enabled;
 }
 
 /* multidisk support */
@@ -436,119 +517,119 @@ static bool disk_ejected;
 static unsigned int disk_current_index;
 static unsigned int disk_count;
 static struct disks_state {
-	char *fname;
-	int internal_index; // for multidisk eboots
+    char *fname;
+    int internal_index; // for multidisk eboots
 } disks[8];
 
 static bool disk_set_eject_state(bool ejected)
 {
-	// weird PCSX API..
-	SetCdOpenCaseTime(ejected ? -1 : (time(NULL) + 2));
-	LidInterrupt();
+    // weird PCSX API..
+    SetCdOpenCaseTime(ejected ? -1 : (time(NULL) + 2));
+    LidInterrupt();
 
-	disk_ejected = ejected;
-	return true;
+    disk_ejected = ejected;
+    return true;
 }
 
 static bool disk_get_eject_state(void)
 {
-	/* can't be controlled by emulated software */
-	return disk_ejected;
+    /* can't be controlled by emulated software */
+    return disk_ejected;
 }
 
 static unsigned int disk_get_image_index(void)
 {
-	return disk_current_index;
+    return disk_current_index;
 }
 
 static bool disk_set_image_index(unsigned int index)
 {
-	if (index >= sizeof(disks) / sizeof(disks[0]))
-		return false;
+    if (index >= sizeof(disks) / sizeof(disks[0]))
+        return false;
 
-	CdromId[0] = '\0';
-	CdromLabel[0] = '\0';
+    CdromId[0] = '\0';
+    CdromLabel[0] = '\0';
 
-	if (disks[index].fname == NULL) {
-		SysPrintf("missing disk #%u\n", index);
-		CDR_shutdown();
+    if (disks[index].fname == NULL) {
+        SysPrintf("missing disk #%u\n", index);
+        CDR_shutdown();
 
-		// RetroArch specifies "no disk" with index == count,
-		// so don't fail here..
-		disk_current_index = index;
-		return true;
-	}
+        // RetroArch specifies "no disk" with index == count,
+        // so don't fail here..
+        disk_current_index = index;
+        return true;
+    }
 
-	SysPrintf("switching to disk %u: \"%s\" #%d\n", index,
-		disks[index].fname, disks[index].internal_index);
+    SysPrintf("switching to disk %u: \"%s\" #%d\n", index,
+        disks[index].fname, disks[index].internal_index);
 
-	cdrIsoMultidiskSelect = disks[index].internal_index;
-	set_cd_image(disks[index].fname);
-	if (ReloadCdromPlugin() < 0) {
-		SysPrintf("failed to load cdr plugin\n");
-		return false;
-	}
-	if (CDR_open() < 0) {
-		SysPrintf("failed to open cdr plugin\n");
-		return false;
-	}
+    cdrIsoMultidiskSelect = disks[index].internal_index;
+    set_cd_image(disks[index].fname);
+    if (ReloadCdromPlugin() < 0) {
+        SysPrintf("failed to load cdr plugin\n");
+        return false;
+    }
+    if (CDR_open() < 0) {
+        SysPrintf("failed to open cdr plugin\n");
+        return false;
+    }
 
-	if (!disk_ejected) {
-		SetCdOpenCaseTime(time(NULL) + 2);
-		LidInterrupt();
-	}
+    if (!disk_ejected) {
+        SetCdOpenCaseTime(time(NULL) + 2);
+        LidInterrupt();
+    }
 
-	disk_current_index = index;
-	return true;
+    disk_current_index = index;
+    return true;
 }
 
 static unsigned int disk_get_num_images(void)
 {
-	return disk_count;
+    return disk_count;
 }
 
 static bool disk_replace_image_index(unsigned index,
-	const struct retro_game_info *info)
+    const struct retro_game_info *info)
 {
-	char *old_fname;
-	bool ret = true;
+    char *old_fname;
+    bool ret = true;
 
-	if (index >= sizeof(disks) / sizeof(disks[0]))
-		return false;
+    if (index >= sizeof(disks) / sizeof(disks[0]))
+        return false;
 
-	old_fname = disks[index].fname;
-	disks[index].fname = NULL;
-	disks[index].internal_index = 0;
+    old_fname = disks[index].fname;
+    disks[index].fname = NULL;
+    disks[index].internal_index = 0;
 
-	if (info != NULL) {
-		disks[index].fname = strdup(info->path);
-		if (index == disk_current_index)
-			ret = disk_set_image_index(index);
-	}
+    if (info != NULL) {
+        disks[index].fname = strdup(info->path);
+        if (index == disk_current_index)
+            ret = disk_set_image_index(index);
+    }
 
-	if (old_fname != NULL)
-		free(old_fname);
+    if (old_fname != NULL)
+        free(old_fname);
 
-	return ret;
+    return ret;
 }
 
 static bool disk_add_image_index(void)
 {
-	if (disk_count >= 8)
-		return false;
+    if (disk_count >= 8)
+        return false;
 
-	disk_count++;
-	return true;
+    disk_count++;
+    return true;
 }
 
 static struct retro_disk_control_callback disk_control = {
-	.set_eject_state = disk_set_eject_state,
-	.get_eject_state = disk_get_eject_state,
-	.get_image_index = disk_get_image_index,
-	.set_image_index = disk_set_image_index,
-	.get_num_images = disk_get_num_images,
-	.replace_image_index = disk_replace_image_index,
-	.add_image_index = disk_add_image_index,
+    .set_eject_state = disk_set_eject_state,
+    .get_eject_state = disk_get_eject_state,
+    .get_image_index = disk_get_image_index,
+    .set_image_index = disk_set_image_index,
+    .get_num_images = disk_get_num_images,
+    .replace_image_index = disk_replace_image_index,
+    .add_image_index = disk_add_image_index,
 };
 
 // just in case, maybe a win-rt port in the future?
@@ -562,31 +643,31 @@ static char base_dir[PATH_MAX];
 
 static bool read_m3u(const char *file)
 {
-	char line[PATH_MAX];
-	char name[PATH_MAX];
-	FILE *f = fopen(file, "r");
-	if (!f)
-		return false;
+    char line[PATH_MAX];
+    char name[PATH_MAX];
+    FILE *f = fopen(file, "r");
+    if (!f)
+        return false;
 
-	while (fgets(line, sizeof(line), f) && disk_count < sizeof(disks) / sizeof(disks[0])) {
-		if (line[0] == '#')
-			continue;
-		char *carrige_return = strchr(line, '\r');
-		if (carrige_return)
-			*carrige_return = '\0';
-		char *newline = strchr(line, '\n');
-		if (newline)
-			*newline = '\0';
+    while (fgets(line, sizeof(line), f) && disk_count < sizeof(disks) / sizeof(disks[0])) {
+        if (line[0] == '#')
+            continue;
+        char *carrige_return = strchr(line, '\r');
+        if (carrige_return)
+            *carrige_return = '\0';
+        char *newline = strchr(line, '\n');
+        if (newline)
+            *newline = '\0';
 
-		if (line[0] != '\0')
-		{
-			snprintf(name, sizeof(name), "%s%c%s", base_dir, SLASH, line);
-			disks[disk_count++].fname = strdup(name);
-		}
-	}
+        if (line[0] != '\0')
+        {
+            snprintf(name, sizeof(name), "%s%c%s", base_dir, SLASH, line);
+            disks[disk_count++].fname = strdup(name);
+        }
+    }
 
-	fclose(f);
-	return (disk_count != 0);
+    fclose(f);
+    return (disk_count != 0);
 }
 
 static void extract_directory(char *buf, const char *path, size_t size)
@@ -617,28 +698,28 @@ static void extract_directory(char *buf, const char *path, size_t size)
 char *
 strcasestr(const char *s, const char*find)
 {
-	char c, sc;
-	size_t len;
+    char c, sc;
+    size_t len;
 
-	if ((c = *find++) != 0) {
-		c = tolower((unsigned char)c);
-		len = strlen(find);
-		do {
-			do {
-				if ((sc = *s++) == 0)
-					return (NULL);
-			} while ((char)tolower((unsigned char)sc) != c);
-		} while (strncasecmp(s, find, len) != 0);
-		s--;
-	}
-	return ((char *)s);
+    if ((c = *find++) != 0) {
+        c = tolower((unsigned char)c);
+        len = strlen(find);
+        do {
+            do {
+                if ((sc = *s++) == 0)
+                    return (NULL);
+            } while ((char)tolower((unsigned char)sc) != c);
+        } while (strncasecmp(s, find, len) != 0);
+        s--;
+    }
+    return ((char *)s);
 }
 #endif
 
 bool retro_load_game(const struct retro_game_info *info)
 {
-	size_t i;
-	bool is_m3u = (strcasestr(info->path, ".m3u") != NULL);
+    size_t i;
+    bool is_m3u = (strcasestr(info->path, ".m3u") != NULL);
 
    struct retro_input_descriptor desc[] = {
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "D-Pad Left" },
@@ -762,7 +843,7 @@ bool retro_load_game(const struct retro_game_info *info)
       { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,    "R2" },
       { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3,    "R3" },
       { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,    "Select" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" }, 
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
       { 5, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
       { 5, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
       { 5, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
@@ -783,7 +864,7 @@ bool retro_load_game(const struct retro_game_info *info)
       { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,    "R2" },
       { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3,    "R3" },
       { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,    "Select" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" }, 
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
       { 6, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
       { 6, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
       { 6, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
@@ -804,7 +885,7 @@ bool retro_load_game(const struct retro_game_info *info)
       { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,    "R2" },
       { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3,    "R3" },
       { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,    "Select" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" }, 
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
       { 7, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
       { 7, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
       { 7, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
@@ -816,153 +897,156 @@ bool retro_load_game(const struct retro_game_info *info)
    environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, desc);
 
 #ifdef FRONTEND_SUPPORTS_RGB565
-	enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_RGB565;
-	if (environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt)) {
-		SysPrintf("RGB565 supported, using it\n");
-	}
+    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_RGB565;
+    if (environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt)) {
+        SysPrintf("RGB565 supported, using it\n");
+    }
 #endif
 
-	if (info == NULL || info->path == NULL) {
-		SysPrintf("info->path required\n");
-		return false;
-	}
+    if (info == NULL || info->path == NULL) {
+        SysPrintf("info->path required\n");
+        return false;
+    }
 
-	if (plugins_opened) {
-		ClosePlugins();
-		plugins_opened = 0;
-	}
+    if (plugins_opened) {
+        ClosePlugins();
+        plugins_opened = 0;
+    }
 
-	for (i = 0; i < sizeof(disks) / sizeof(disks[0]); i++) {
-		if (disks[i].fname != NULL) {
-			free(disks[i].fname);
-			disks[i].fname = NULL;
-		}
-		disks[i].internal_index = 0;
-	}
+    for (i = 0; i < sizeof(disks) / sizeof(disks[0]); i++) {
+        if (disks[i].fname != NULL) {
+            free(disks[i].fname);
+            disks[i].fname = NULL;
+        }
+        disks[i].internal_index = 0;
+    }
 
-	disk_current_index = 0;
-	extract_directory(base_dir, info->path, sizeof(base_dir));
+    disk_current_index = 0;
+    extract_directory(base_dir, info->path, sizeof(base_dir));
 
-	if (is_m3u) {
-		if (!read_m3u(info->path)) {
-			SysPrintf("failed to read m3u file\n");
-			return false;
-		}
-	} else {
-		disk_count = 1;
-		disks[0].fname = strdup(info->path);
-	}
+    if (is_m3u) {
+        if (!read_m3u(info->path)) {
+            SysPrintf("failed to read m3u file\n");
+            return false;
+        }
+    } else {
+        disk_count = 1;
+        disks[0].fname = strdup(info->path);
+    }
 
-	set_cd_image(disks[0].fname);
+    set_cd_image(disks[0].fname);
 
-	/* have to reload after set_cd_image for correct cdr plugin */
-	if (LoadPlugins() == -1) {
-		SysPrintf("failed to load plugins\n");
-		return false;
-	}
+    /* have to reload after set_cd_image for correct cdr plugin */
+    if (LoadPlugins() == -1) {
+        SysPrintf("failed to load plugins\n");
+        return false;
+    }
 
-	plugins_opened = 1;
-	NetOpened = 0;
+    plugins_opened = 1;
+    NetOpened = 0;
 
-	if (OpenPlugins() == -1) {
-		SysPrintf("failed to open plugins\n");
-		return false;
-	}
+    if (OpenPlugins() == -1) {
+        SysPrintf("failed to open plugins\n");
+        return false;
+    }
 
-	plugin_call_rearmed_cbs();
-	dfinput_activate();
+    plugin_call_rearmed_cbs();
+    dfinput_activate();
 
-	Config.PsxAuto = 1;
-	if (CheckCdrom() == -1) {
-		SysPrintf("unsupported/invalid CD image: %s\n", info->path);
-		return false;
-	}
+    Config.PsxAuto = 1;
+    if (CheckCdrom() == -1) {
+        SysPrintf("unsupported/invalid CD image: %s\n", info->path);
+        return false;
+    }
 
-	SysReset();
+    SysReset();
 
-	if (LoadCdrom() == -1) {
-		SysPrintf("could not load CD-ROM!\n");
-		return false;
-	}
-	emu_on_new_cd(0);
+    if (LoadCdrom() == -1) {
+        SysPrintf("could not load CD-ROM!\n");
+        return false;
+    }
+    emu_on_new_cd(0);
 
-	// multidisk images
-	if (!is_m3u) {
-		disk_count = cdrIsoMultidiskCount < 8 ? cdrIsoMultidiskCount : 8;
-		for (i = 1; i < sizeof(disks) / sizeof(disks[0]) && i < cdrIsoMultidiskCount; i++) {
-			disks[i].fname = strdup(info->path);
-			disks[i].internal_index = i;
-		}
-	}
+    // multidisk images
+    if (!is_m3u) {
+        disk_count = cdrIsoMultidiskCount < 8 ? cdrIsoMultidiskCount : 8;
+        for (i = 1; i < sizeof(disks) / sizeof(disks[0]) && i < cdrIsoMultidiskCount; i++) {
+            disks[i].fname = strdup(info->path);
+            disks[i].internal_index = i;
+        }
+    }
 
-	return true;
+    vout_width = VOUT_WIDTH;
+    vout_height = VOUT_HEIGHT;
+
+    return true;
 }
 
 bool retro_load_game_special(unsigned game_type, const struct retro_game_info *info, size_t num_info)
 {
-	return false;
+    return false;
 }
 
-void retro_unload_game(void) 
+void retro_unload_game(void)
 {
 }
 
 unsigned retro_get_region(void)
 {
-	return is_pal_mode ? RETRO_REGION_PAL : RETRO_REGION_NTSC;
+    return is_pal_mode ? RETRO_REGION_PAL : RETRO_REGION_NTSC;
 }
 
 void *retro_get_memory_data(unsigned id)
 {
-	if (id == RETRO_MEMORY_SAVE_RAM)
-		return Mcd1Data;
+    if (id == RETRO_MEMORY_SAVE_RAM)
+        return Mcd1Data;
 
-	if (id == RETRO_MEMORY_SYSTEM_RAM)
-		return psxM;
+    if (id == RETRO_MEMORY_SYSTEM_RAM)
+        return psxM;
 
-	return NULL;
+    return NULL;
 }
 
 size_t retro_get_memory_size(unsigned id)
 {
-	if (id == RETRO_MEMORY_SAVE_RAM)
-		return MCD_SIZE;
+    if (id == RETRO_MEMORY_SAVE_RAM)
+        return MCD_SIZE;
 
-	if (id == RETRO_MEMORY_SYSTEM_RAM)
-		return 0x200000;
+    if (id == RETRO_MEMORY_SYSTEM_RAM)
+        return 0x200000;
 
-	return 0;
+    return 0;
 }
 
 void retro_reset(void)
 {
-	SysReset();
+    SysReset();
 }
 
 static const unsigned short retro_psx_map[] = {
-	[RETRO_DEVICE_ID_JOYPAD_B]	= 1 << DKEY_CROSS,
-	[RETRO_DEVICE_ID_JOYPAD_Y]	= 1 << DKEY_SQUARE,
-	[RETRO_DEVICE_ID_JOYPAD_SELECT]	= 1 << DKEY_SELECT,
-	[RETRO_DEVICE_ID_JOYPAD_START]	= 1 << DKEY_START,
-	[RETRO_DEVICE_ID_JOYPAD_UP]	= 1 << DKEY_UP,
-	[RETRO_DEVICE_ID_JOYPAD_DOWN]	= 1 << DKEY_DOWN,
-	[RETRO_DEVICE_ID_JOYPAD_LEFT]	= 1 << DKEY_LEFT,
-	[RETRO_DEVICE_ID_JOYPAD_RIGHT]	= 1 << DKEY_RIGHT,
-	[RETRO_DEVICE_ID_JOYPAD_A]	= 1 << DKEY_CIRCLE,
-	[RETRO_DEVICE_ID_JOYPAD_X]	= 1 << DKEY_TRIANGLE,
-	[RETRO_DEVICE_ID_JOYPAD_L]	= 1 << DKEY_L1,
-	[RETRO_DEVICE_ID_JOYPAD_R]	= 1 << DKEY_R1,
-	[RETRO_DEVICE_ID_JOYPAD_L2]	= 1 << DKEY_L2,
-	[RETRO_DEVICE_ID_JOYPAD_R2]	= 1 << DKEY_R2,
-	[RETRO_DEVICE_ID_JOYPAD_L3]	= 1 << DKEY_L3,
-	[RETRO_DEVICE_ID_JOYPAD_R3]	= 1 << DKEY_R3,
+    [RETRO_DEVICE_ID_JOYPAD_B]	= 1 << DKEY_CROSS,
+    [RETRO_DEVICE_ID_JOYPAD_Y]	= 1 << DKEY_SQUARE,
+    [RETRO_DEVICE_ID_JOYPAD_SELECT]	= 1 << DKEY_SELECT,
+    [RETRO_DEVICE_ID_JOYPAD_START]	= 1 << DKEY_START,
+    [RETRO_DEVICE_ID_JOYPAD_UP]	= 1 << DKEY_UP,
+    [RETRO_DEVICE_ID_JOYPAD_DOWN]	= 1 << DKEY_DOWN,
+    [RETRO_DEVICE_ID_JOYPAD_LEFT]	= 1 << DKEY_LEFT,
+    [RETRO_DEVICE_ID_JOYPAD_RIGHT]	= 1 << DKEY_RIGHT,
+    [RETRO_DEVICE_ID_JOYPAD_A]	= 1 << DKEY_CIRCLE,
+    [RETRO_DEVICE_ID_JOYPAD_X]	= 1 << DKEY_TRIANGLE,
+    [RETRO_DEVICE_ID_JOYPAD_L]	= 1 << DKEY_L1,
+    [RETRO_DEVICE_ID_JOYPAD_R]	= 1 << DKEY_R1,
+    [RETRO_DEVICE_ID_JOYPAD_L2]	= 1 << DKEY_L2,
+    [RETRO_DEVICE_ID_JOYPAD_R2]	= 1 << DKEY_R2,
+    [RETRO_DEVICE_ID_JOYPAD_L3]	= 1 << DKEY_L3,
+    [RETRO_DEVICE_ID_JOYPAD_R3]	= 1 << DKEY_R3,
 };
 #define RETRO_PSX_MAP_LEN (sizeof(retro_psx_map) / sizeof(retro_psx_map[0]))
 
 static void update_variables(bool in_flight)
 {
    struct retro_variable var;
-   
+
    var.value = NULL;
    var.key = "pcsx_rearmed_frameskip";
 
@@ -974,14 +1058,37 @@ static void update_variables(bool in_flight)
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) || var.value)
    {
+      boolean PsxAuto = Config.PsxAuto;
+      u8 PsxType      = Config.PsxType;
       Config.PsxAuto = 0;
       if (strcmp(var.value, "Automatic") == 0)
+      {
          Config.PsxAuto = 1;
+      }
       else if (strcmp(var.value, "NTSC") == 0)
+      {
          Config.PsxType = 0;
+      }
       else if (strcmp(var.value, "PAL") == 0)
+      {
          Config.PsxType = 1;
+      }
+      if (PsxAuto != Config.PsxAuto || PsxType != Config.PsxType)
+        update_timing = TRUE;
    }
+
+   var.value = NULL;
+   var.key = "pcsx_rearmed_aspect_ratio";
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) || var.value)
+   {
+      int last_val = option_aspect_ratio; 
+      option_aspect_ratio = (strcmp(var.value, "Force 4:3") == 0) ? FORCE_4_3 : AUTO_CORRECT;
+      if (option_aspect_ratio != last_val)
+        update_geometry = TRUE;
+   }
+   else
+      option_aspect_ratio = FALSE;
 
    var.value = NULL;
    var.key = "pcsx_rearmed_pad1type";
@@ -1110,63 +1217,80 @@ static void update_variables(bool in_flight)
    }
 }
 
-void retro_run(void) 
+void retro_run(void)
 {
-	int i;
+    int i;
 
-	input_poll_cb();
+    input_poll_cb();
 
-	bool updated = false;
-	if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
-		update_variables(true);
+    bool updated = false;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
+        update_variables(true);
 
-	in_keystate = 0;
-	for (i = 0; i < RETRO_PSX_MAP_LEN; i++)
-		if (input_state_cb(1, RETRO_DEVICE_JOYPAD, 0, i))
-			in_keystate |= retro_psx_map[i];
-	in_keystate <<= 16;
-	for (i = 0; i < RETRO_PSX_MAP_LEN; i++)
-		if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, i))
-			in_keystate |= retro_psx_map[i];
+    if (update_timing || update_geometry)
+    {
+        struct retro_system_av_info new_av_info;
+        get_system_av_info(&new_av_info);
+        if (update_timing)
+        {
+            update_timing   = FALSE;
+            update_geometry = FALSE;
+            environ_cb(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &new_av_info);
+        }
+        if (update_geometry)
+        {
+            update_geometry = FALSE;
+            environ_cb(RETRO_ENVIRONMENT_SET_GEOMETRY, &new_av_info);
+        }
+    }
 
-	if (in_type1 == PSE_PAD_TYPE_ANALOGPAD)
-	{
-		in_a1[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
-		in_a1[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
-		in_a2[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
-		in_a2[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
-	}
+    in_keystate = 0;
+    for (i = 0; i < RETRO_PSX_MAP_LEN; i++)
+        if (input_state_cb(1, RETRO_DEVICE_JOYPAD, 0, i))
+            in_keystate |= retro_psx_map[i];
+    in_keystate <<= 16;
+    for (i = 0; i < RETRO_PSX_MAP_LEN; i++)
+        if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, i))
+            in_keystate |= retro_psx_map[i];
 
-	stop = 0;
-	psxCpu->Execute();
+    if (in_type1 == PSE_PAD_TYPE_ANALOGPAD)
+    {
+        in_a1[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
+        in_a1[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
+        in_a2[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
+        in_a2[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
+    }
 
-	video_cb((vout_fb_dirty || !vout_can_dupe || !duping_enable) ? vout_buf : NULL,
-		vout_width, vout_height, vout_width * 2);
-	vout_fb_dirty = 0;
+    stop = 0;
+    psxCpu->Execute();
+
+    video_cb((vout_fb_dirty || !vout_can_dupe || !duping_enable) ? vout_buf : NULL,
+        vout_width, vout_height, vout_width * 2);
+    vout_fb_dirty = 0;
 }
 
 static bool try_use_bios(const char *path)
 {
-	FILE *f;
-	long size;
-	const char *name;
+    FILE *f;
+    long size;
+    const char *name;
 
-	f = fopen(path, "rb");
-	if (f == NULL)
-		return false;
+    f = fopen(path, "rb");
+    if (f == NULL)
+        return false;
 
-	fseek(f, 0, SEEK_END);
-	size = ftell(f);
-	fclose(f);
+    fseek(f, 0, SEEK_END);
+    size = ftell(f);
+    fclose(f);
 
-	if (size != 512 * 1024)
-		return false;
+    if (size != 512 * 1024)
+        return false;
 
-	name = strrchr(path, SLASH);
-	if (name++ == NULL)
-		name = path;
-	snprintf(Config.Bios, sizeof(Config.Bios), "%s", name);
-	return true;
+    name = strrchr(path, SLASH);
+    if (name++ == NULL)
+        name = path;
+    snprintf(Config.Bios, sizeof(Config.Bios), "%s", name);
+    return true;
 }
 
 #if 1
@@ -1175,25 +1299,25 @@ static bool try_use_bios(const char *path)
 
 static bool find_any_bios(const char *dirpath, char *path, size_t path_size)
 {
-	DIR *dir;
-	struct dirent *ent;
-	bool ret = false;
+    DIR *dir;
+    struct dirent *ent;
+    bool ret = false;
 
-	dir = opendir(dirpath);
-	if (dir == NULL)
-		return false;
+    dir = opendir(dirpath);
+    if (dir == NULL)
+        return false;
 
-	while ((ent = readdir(dir))) {
-		if (strncasecmp(ent->d_name, "scph", 4) != 0)
-			continue;
+    while ((ent = readdir(dir))) {
+        if (strncasecmp(ent->d_name, "scph", 4) != 0)
+            continue;
 
-		snprintf(path, path_size, "%s/%s", dirpath, ent->d_name);
-		ret = try_use_bios(path);
-		if (ret)
-			break;
-	}
-	closedir(dir);
-	return ret;
+        snprintf(path, path_size, "%s/%s", dirpath, ent->d_name);
+        ret = try_use_bios(path);
+        if (ret)
+            break;
+    }
+    closedir(dir);
+    return ret;
 }
 #else
 #define find_any_bios(...) false
@@ -1253,91 +1377,91 @@ static int init_memcards(void)
 
 void retro_init(void)
 {
-	const char *bios[] = { "scph1001", "scph5501", "scph7001" };
-	const char *dir;
-	char path[256];
-	int i, ret;
-	bool found_bios = false;
+    const char *bios[] = { "scph1001", "scph5501", "scph7001" };
+    const char *dir;
+    char path[256];
+    int i, ret;
+    bool found_bios = false;
 
 #ifdef __MACH__
-	// magic sauce to make the dynarec work on iOS
-	syscall(SYS_ptrace, 0 /*PTRACE_TRACEME*/, 0, 0, 0);
+    // magic sauce to make the dynarec work on iOS
+    syscall(SYS_ptrace, 0 /*PTRACE_TRACEME*/, 0, 0, 0);
 #endif
 
-	ret = emu_core_preinit();
+    ret = emu_core_preinit();
 
-	ret |= init_memcards();
+    ret |= init_memcards();
 
-	ret |= emu_core_init();
+    ret |= emu_core_init();
 
-	if (ret != 0) {
-		SysPrintf("PCSX init failed.\n");
-		exit(1);
-	}
+    if (ret != 0) {
+        SysPrintf("PCSX init failed.\n");
+        exit(1);
+    }
 
 #if defined(_POSIX_C_SOURCE) && (_POSIX_C_SOURCE >= 200112L)
-	posix_memalign(&vout_buf, 16, VOUT_MAX_WIDTH * VOUT_MAX_HEIGHT * 2);
+    posix_memalign(&vout_buf, 16, VOUT_MAX_WIDTH * VOUT_MAX_HEIGHT * 2);
 #else
-	vout_buf = malloc(VOUT_MAX_WIDTH * VOUT_MAX_HEIGHT * 2);
+    vout_buf = malloc(VOUT_MAX_WIDTH * VOUT_MAX_HEIGHT * 2);
 #endif
 
-	if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &dir) && dir)
-	{
-		snprintf(Config.BiosDir, sizeof(Config.BiosDir), "%s/", dir);
+    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &dir) && dir)
+    {
+        snprintf(Config.BiosDir, sizeof(Config.BiosDir), "%s/", dir);
 
-		for (i = 0; i < sizeof(bios) / sizeof(bios[0]); i++) {
-			snprintf(path, sizeof(path), "%s/%s.bin", dir, bios[i]);
-			found_bios = try_use_bios(path);
-			if (found_bios)
-				break;
-		}
+        for (i = 0; i < sizeof(bios) / sizeof(bios[0]); i++) {
+            snprintf(path, sizeof(path), "%s/%s.bin", dir, bios[i]);
+            found_bios = try_use_bios(path);
+            if (found_bios)
+                break;
+        }
 
-		if (!found_bios)
-			found_bios = find_any_bios(dir, path, sizeof(path));
-	}
-	if (found_bios) {
-		SysPrintf("found BIOS file: %s\n", Config.Bios);
-	}
-	else
-	{
-		SysPrintf("no BIOS files found.\n");
-		struct retro_message msg = 
-		{
-			"no BIOS found, expect bugs!",
-			180
-		};
-		environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, (void*)&msg);
-	}
+        if (!found_bios)
+            found_bios = find_any_bios(dir, path, sizeof(path));
+    }
+    if (found_bios) {
+        SysPrintf("found BIOS file: %s\n", Config.Bios);
+    }
+    else
+    {
+        SysPrintf("no BIOS files found.\n");
+        struct retro_message msg =
+        {
+            "no BIOS found, expect bugs!",
+            180
+        };
+        environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, (void*)&msg);
+    }
 
-	environ_cb(RETRO_ENVIRONMENT_GET_CAN_DUPE, &vout_can_dupe);
-	environ_cb(RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE, &disk_control);
-	environ_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumble);
+    environ_cb(RETRO_ENVIRONMENT_GET_CAN_DUPE, &vout_can_dupe);
+    environ_cb(RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE, &disk_control);
+    environ_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumble);
 
-	/* Set how much slower PSX CPU runs * 100 (so that 200 is 2 times)
-	 * we have to do this because cache misses and some IO penalties
-	 * are not emulated. Warning: changing this may break compatibility. */
-	cycle_multiplier = 175;
+    /* Set how much slower PSX CPU runs * 100 (so that 200 is 2 times)
+     * we have to do this because cache misses and some IO penalties
+     * are not emulated. Warning: changing this may break compatibility. */
+    cycle_multiplier = 175;
 #ifdef HAVE_PRE_ARMV7
-	cycle_multiplier = 200;
+    cycle_multiplier = 200;
 #endif
-	pl_rearmed_cbs.gpu_peops.iUseDither = 1;
-	spu_config.iUseFixedUpdates = 1;
+    pl_rearmed_cbs.gpu_peops.iUseDither = 1;
+    spu_config.iUseFixedUpdates = 1;
 
-	SaveFuncs.open = save_open;
-	SaveFuncs.read = save_read;
-	SaveFuncs.write = save_write;
-	SaveFuncs.seek = save_seek;
-	SaveFuncs.close = save_close;
+    SaveFuncs.open = save_open;
+    SaveFuncs.read = save_read;
+    SaveFuncs.write = save_write;
+    SaveFuncs.seek = save_seek;
+    SaveFuncs.close = save_close;
 
-	update_variables(false);
-	check_system_specs();
+    update_variables(false);
+    check_system_specs();
 }
 
 void retro_deinit(void)
 {
-	SysClose();
-	free(vout_buf);
-	vout_buf = NULL;
+    SysClose();
+    free(vout_buf);
+    vout_buf = NULL;
 }
 
 int open_invalid_time;
@@ -1354,7 +1478,7 @@ void set_scenes(int scenes)
 
 int SOUND_isPlaying(void)
 {
-	return 0;
+    return 0;
 }
 
 void set_bo_trg(int onoff, int ch)
@@ -1363,12 +1487,12 @@ void set_bo_trg(int onoff, int ch)
 
 void *pl_prepare_screenshot(int *w, int *h, int *bpp)
 {
-	return NULL;
+    return NULL;
 }
 
 int make_file_name(void)
 {
-	return 0;
+    return 0;
 }
 
 void swap_cd(void)
@@ -1377,5 +1501,5 @@ void swap_cd(void)
 
 int writepng(const char *fname, unsigned short *src, int w, int h)
 {
-	return 0;
+    return 0;
 }
