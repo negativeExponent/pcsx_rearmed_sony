@@ -54,7 +54,7 @@ extern char Mcd1Data[MCD_SIZE];
 extern char McdDisable[2];
 
 /* PCSX ReARMed core calls and stuff */
-int in_type1, in_type2;
+int in_type[2];
 int in_a1[2] = { 127, 127 }, in_a2[2] = { 127, 127 };
 int in_keystate;
 int in_enable_vibration = 1;
@@ -88,7 +88,7 @@ enum opt_aspect_ratio {
     AUTO_CORRECT
 };
 
-static int option_aspect_ratio     = FORCE_4_3;
+static int option_aspect_ratio      = FORCE_4_3;
 
 static void init_memcard(char *mcd_data)
 {
@@ -336,8 +336,6 @@ void retro_set_environment(retro_environment_t cb)
       { "pcsx_rearmed_memcard2", "Enable Second Memory Card (Shared); disabled|enabled" },
       { "pcsx_rearmed_region", "Region; Auto|NTSC|PAL" },
       { "pcsx_rearmed_aspect_ratio", "Aspect Ratio; Auto|Force 4:3" },
-      { "pcsx_rearmed_pad1type", "Pad 1 Type; standard|analog" },
-      { "pcsx_rearmed_pad2type", "Pad 2 Type; standard|analog" },
 #ifndef DRC_DISABLE
       { "pcsx_rearmed_drc", "Dynamic recompiler; enabled|disabled" },
 #endif
@@ -352,8 +350,26 @@ void retro_set_environment(retro_environment_t cb)
       { NULL, NULL },
    };
 
+   static const struct retro_controller_description pad1[] = {
+      { "Standard Controller", RETRO_DEVICE_JOYPAD },
+      { "Analog Controller", RETRO_DEVICE_ANALOG },
+      { NULL, 0 },
+   };
+
+   static const struct retro_controller_description pad2[] = {
+      { "Standard Controller", RETRO_DEVICE_JOYPAD },
+      { NULL, 0 },
+   };
+
+   static const struct retro_controller_info ports[] = {
+      { pad1, 3 },
+      { pad2, 2 },
+      { NULL, 0 },
+   };
+
    environ_cb = cb;
 
+   cb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, (void *)ports);
    cb(RETRO_ENVIRONMENT_SET_VARIABLES, (void*)vars);
 }
 
@@ -368,8 +384,43 @@ unsigned retro_api_version(void)
     return RETRO_API_VERSION;
 }
 
+static int retropad_to_psx_pad_type(unsigned port, unsigned device)
+{
+   int ret = 0;
+
+   switch (device)
+   {
+   case RETRO_DEVICE_JOYPAD:
+      SysPrintf("Player Port %d: Standard Controller\n", port + 1);
+      return PSE_PAD_TYPE_STANDARD;
+
+   case RETRO_DEVICE_ANALOG:
+      SysPrintf("Player Port %d: Analog Controller\n", port + 1);
+      return PSE_PAD_TYPE_ANALOGPAD;
+
+   case RETRO_DEVICE_NONE:
+      SysPrintf("Player Port %d: None\n", port + 1);
+      break;
+
+   default:
+      SysPrintf("Player Port %d: Unknown controller\n", port + 1);
+      break;
+   }
+   return ret;
+}
+
 void retro_set_controller_port_device(unsigned port, unsigned device)
 {
+   int type = in_type[port];
+
+   /* just 2 controller ports for now */
+   if (port >= 2)
+      return;
+
+   in_type[port] = retropad_to_psx_pad_type(port, device);
+
+   if (in_type[port] != type)
+      dfinput_activate();
 }
 
 void retro_get_system_info(struct retro_system_info *info)
@@ -1090,26 +1141,6 @@ static void update_variables(bool in_flight)
    else
       option_aspect_ratio = FALSE;
 
-   var.value = NULL;
-   var.key = "pcsx_rearmed_pad1type";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) || var.value)
-   {
-      in_type1 = PSE_PAD_TYPE_STANDARD;
-      if (strcmp(var.value, "analog") == 0)
-         in_type1 = PSE_PAD_TYPE_ANALOGPAD;
-   }
-
-   var.value = NULL;
-   var.key = "pcsx_rearmed_pad2type";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) || var.value)
-   {
-      in_type2 = PSE_PAD_TYPE_STANDARD;
-      if (strcmp(var.value, "analog") == 0)
-         in_type2 = PSE_PAD_TYPE_ANALOGPAD;
-   }
-
 #ifdef __ARM_NEON__
    var.value = "NULL";
    var.key = "pcsx_rearmed_neon_interlace_enable";
@@ -1217,13 +1248,40 @@ static void update_variables(bool in_flight)
    }
 }
 
+static void update_input(void)
+{
+    unsigned i, port;
+
+    in_keystate = 0;
+    for (port = 0; port < 2; port++)
+    {
+        int type = in_type[port];
+        int input_buf = 0;
+        switch (type)
+        {
+        case PSE_PAD_TYPE_STANDARD:
+        case PSE_PAD_TYPE_ANALOGPAD:
+            for (i = 0; i < RETRO_PSX_MAP_LEN; i++)
+                if (input_state_cb(port, RETRO_DEVICE_JOYPAD, 0, i))
+                    input_buf |= retro_psx_map[i];
+            break;
+        }
+        in_keystate |= (input_buf & 0xFFFF) << (port << 16);
+    }
+
+    if (in_type[0] == PSE_PAD_TYPE_ANALOGPAD)
+    {
+        in_a1[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
+        in_a1[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
+        in_a2[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
+        in_a2[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
+    }
+}
+
 void retro_run(void)
 {
-    int i;
-
-    input_poll_cb();
-
     bool updated = false;
+
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
         update_variables(true);
 
@@ -1244,22 +1302,9 @@ void retro_run(void)
         }
     }
 
-    in_keystate = 0;
-    for (i = 0; i < RETRO_PSX_MAP_LEN; i++)
-        if (input_state_cb(1, RETRO_DEVICE_JOYPAD, 0, i))
-            in_keystate |= retro_psx_map[i];
-    in_keystate <<= 16;
-    for (i = 0; i < RETRO_PSX_MAP_LEN; i++)
-        if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, i))
-            in_keystate |= retro_psx_map[i];
+    input_poll_cb();
 
-    if (in_type1 == PSE_PAD_TYPE_ANALOGPAD)
-    {
-        in_a1[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
-        in_a1[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
-        in_a2[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
-        in_a2[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
-    }
+    update_input();
 
     stop = 0;
     psxCpu->Execute();

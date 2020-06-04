@@ -479,7 +479,7 @@ inline void key_press_event(int key2,int type)
 			return;
 	}
 
-	if (in_type1 == PSE_PAD_TYPE_GUNCON){
+	if (in_type[0] == PSE_PAD_TYPE_GUNCON){
 		if (type == 1) {
 			switch (psxkey1){
 				case DKEY_CROSS:
@@ -518,7 +518,7 @@ inline void key_press_event(int key2,int type)
 		if (psxkey2 >= 0)
 			in_keystate |= 1 << psxkey2;
 
-			if (in_type1 == PSE_PAD_TYPE_ANALOGPAD){
+			if (in_type[0] == PSE_PAD_TYPE_ANALOGPAD){
 				switch(psxkey1){
 					case DKEY_LEFT:
 						in_a1[0] = 0;
@@ -541,7 +541,7 @@ inline void key_press_event(int key2,int type)
 		if (psxkey2 >= 0)
 			in_keystate &= ~(1 << psxkey2);
 
-			if (in_type1 == PSE_PAD_TYPE_ANALOGPAD){
+			if (in_type[0] == PSE_PAD_TYPE_ANALOGPAD){
 				switch(psxkey1){
 					case DKEY_LEFT:
 					case DKEY_RIGHT:
@@ -600,7 +600,7 @@ int maemo_init(int *argc, char ***argv)
 		fclose(pFile);
 	}
 	
-	switch (in_type1){
+	switch (in_type[0]){
 		case PSE_PAD_TYPE_GUNCON:
 			memset(cornerActions, 0, sizeof(cornerActions));
 			printf("Controller set to GUNCON (SLPH-00034)\n");
@@ -734,7 +734,7 @@ void *plat_gvideo_flip(void)
 		fscanf( f, "%f %f %f", &x, &y, &z );
 		fclose( f );
 
-		if (in_type1 == PSE_PAD_TYPE_ANALOGPAD){
+		if (in_type[0] == PSE_PAD_TYPE_ANALOGPAD){
 			if (x > accelOptions.maxValue) x = accelOptions.maxValue;
 			else if (x < -accelOptions.maxValue) x = -accelOptions.maxValue;
 
