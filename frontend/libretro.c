@@ -1078,9 +1078,12 @@ RETRO_API void retro_set_controller_port_device(unsigned port, unsigned device)
 
 RETRO_API void retro_get_system_info(struct retro_system_info *info)
 {
+#ifndef GIT_VERSION
+#define GIT_VERSION ""
+#endif
    memset(info, 0, sizeof(*info));
    info->library_name      = "PCSX-ReARMed_Classic";
-   info->library_version   = "r22";
+   info->library_version  = "r22" GIT_VERSION;
    info->valid_extensions  = "bin|cue|img|mdf|pbp|toc|cbn|m3u|chd";
    info->need_fullpath     = true;
 }
