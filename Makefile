@@ -42,6 +42,64 @@ ifdef PCNT
 CFLAGS += -DPCNT
 endif
 
+ZLIB_INCLUDE += -Ideps/zlib-1.2.11
+ZLIB_OBJS += deps/zlib-1.2.11/adler32.o
+ZLIB_OBJS += deps/zlib-1.2.11/compress.o
+ZLIB_OBJS += deps/zlib-1.2.11/crc32.o
+ZLIB_OBJS += deps/zlib-1.2.11/deflate.o
+ZLIB_OBJS += deps/zlib-1.2.11/gzclose.o
+ZLIB_OBJS += deps/zlib-1.2.11/gzlib.o
+ZLIB_OBJS += deps/zlib-1.2.11/gzread.o
+ZLIB_OBJS += deps/zlib-1.2.11/gzwrite.o
+ZLIB_OBJS += deps/zlib-1.2.11/inffast.o
+ZLIB_OBJS += deps/zlib-1.2.11/inflate.o
+ZLIB_OBJS += deps/zlib-1.2.11/inftrees.o
+ZLIB_OBJS += deps/zlib-1.2.11/trees.o
+ZLIB_OBJS += deps/zlib-1.2.11/uncompr.o
+ZLIB_OBJS += deps/zlib-1.2.11/zutil.o
+
+CHD_INCLUDE +=  -Ideps/libchdr -Ideps/crypto -Ideps/flac-1.3.3/include -Ideps/flac-1.3.3/src/libFLAC/include -Ideps/flac-1.3.3/src/libFLAC/include -Ideps/lzma-16.04/C
+CHD_OBJS += deps/crypto/md5.o
+CHD_OBJS += deps/crypto/sha1.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/bitmath.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/bitreader.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/cpu.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/crc.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/fixed.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/fixed_intrin_sse2.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/fixed_intrin_ssse3.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/float.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/format.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/lpc.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/lpc_intrin_avx2.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/lpc_intrin_sse2.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/lpc_intrin_sse41.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/lpc_intrin_sse.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/md5.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/memory.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/metadata_iterators.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/metadata_object.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/stream_decoder.o
+CHD_OBJS += deps/flac-1.3.3/src/libFLAC/window.o
+CHD_OBJS += deps/lzma-16.04/C/Alloc.o
+CHD_OBJS += deps/lzma-16.04/C/Bra86.o
+CHD_OBJS += deps/lzma-16.04/C/Bra.o
+CHD_OBJS += deps/lzma-16.04/C/BraIA64.o
+CHD_OBJS += deps/lzma-16.04/C/CpuArch.o
+CHD_OBJS += deps/lzma-16.04/C/Delta.o
+CHD_OBJS += deps/lzma-16.04/C/LzFind.o
+CHD_OBJS += deps/lzma-16.04/C/Lzma86Dec.o
+CHD_OBJS += deps/lzma-16.04/C/Lzma86Enc.o
+CHD_OBJS += deps/lzma-16.04/C/LzmaDec.o
+CHD_OBJS += deps/lzma-16.04/C/LzmaEnc.o
+CHD_OBJS += deps/lzma-16.04/C/LzmaLib.o
+CHD_OBJS += deps/lzma-16.04/C/Sort.o
+CHD_OBJS += deps/libchdr/bitstream.o
+CHD_OBJS += deps/libchdr/cdrom.o
+CHD_OBJS += deps/libchdr/chd.o
+CHD_OBJS += deps/libchdr/flac.o
+CHD_OBJS += deps/libchdr/huffman.o
+
 # core
 OBJS += libpcsxcore/cdriso.o libpcsxcore/cdrom.o libpcsxcore/cheat.o libpcsxcore/debug.o \
 	libpcsxcore/decode_xa.o libpcsxcore/disr3000a.o libpcsxcore/mdec.o \
@@ -139,6 +197,26 @@ OBJS += plugins/cdrcimg/cdrcimg.o
 
 # dfinput
 OBJS += plugins/dfinput/main.o plugins/dfinput/pad.o plugins/dfinput/guncon.o
+
+# zlib
+ifeq "$(WANT_ZLIB)" "1"
+CFLAGS += $(ZLIB_INCLUDE)
+OBJS += $(ZLIB_OBJS)
+endif
+
+# chd
+ifeq "$(HAVE_CHD)" "1"
+CFLAGS += $(CHD_INCLUDE)
+CFLAGS += -DHAVE_CHD -D'PACKAGE_VERSION="1.3.3"' -DFLAC__HAS_OGG=0 -DFLAC__NO_DLL -DHAVE_LROUND -DHAVE_STDINT_H -DHAVE_STDLIB_H -DFLAC__NO_DLL -D_7ZIP_ST
+OBJS += $(CHD_OBJS)
+
+ifneq (,$(findstring win,$(platform)))
+  CFLAGS += -DHAVE_FSEEKO
+  OBJS += deps/flac-1.3.3/src/libFLAC/windows_unicode_filenames.o
+else
+  CFLAGS += -DHAVE_SYS_PARAM_H
+endif
+endif
 
 # frontend/gui
 OBJS += frontend/cspace.o

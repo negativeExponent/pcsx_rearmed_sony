@@ -1,5 +1,9 @@
 # Makefile for PCSX ReARMed (libretro)
 
+DEBUG ?= 0
+WANT_ZLIB ?= 1
+HAVE_CHD ?= 1
+
 ifeq ($(platform),)
 	platform = unix
 	ifeq ($(shell uname -a),)
@@ -20,6 +24,17 @@ CC_AS ?= $(CC)
 CFLAGS ?=
 
 TARGET_NAME := pcsx_rearmed
+
+GIT_VERSION := " $(shell git rev-parse --short HEAD || echo unknown)"
+ifneq ($(GIT_VERSION)," unknown")
+	CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
+endif
+ifneq ($(WANT_ZLIB),1)
+LIBZ := -lz
+endif
+LIBM := -lm
+MMAP_WIN32 = 0
+EXTRA_LDFLAGS =
 
 MMAP_WIN32=0
 
@@ -179,7 +194,7 @@ else ifneq ($(platform),qnx)
 	MAIN_LDLIBS += -ldl
 endif
 MAIN_LDFLAGS += -shared
-MAIN_LDLIBS += -lm -lz
+MAIN_LDLIBS += $(LIBM) $(LIBZ)
 EXTRA_LDFLAGS =
 
 # try to autodetect stuff for the lazy
