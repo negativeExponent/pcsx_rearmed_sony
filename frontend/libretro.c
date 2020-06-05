@@ -33,31 +33,12 @@
 #include "revision.h"
 #include "libretro.h"
 
-static retro_video_refresh_t video_cb;
-static retro_input_poll_t input_poll_cb;
-static retro_input_state_t input_state_cb;
-static retro_environment_t environ_cb;
-static retro_audio_sample_batch_t audio_batch_cb;
-static struct retro_rumble_interface rumble;
-
-static void *vout_buf;
-static int vout_width, vout_height;
-static int vout_doffs_old, vout_fb_dirty;
-static bool vout_can_dupe;
-static bool duping_enable;
-
-static int plugins_opened;
-static int is_pal_mode;
-
-/* memory card data */
-extern char Mcd1Data[MCD_SIZE];
-extern char McdDisable[2];
-
-/* PCSX ReARMed core calls and stuff */
-int in_type[2];
-int in_a1[2] = { 127, 127 }, in_a2[2] = { 127, 127 };
-int in_keystate;
-int in_enable_vibration = 1;
+// just in case, maybe a win-rt port in the future?
+#ifdef _WIN32
+#define SLASH '\\'
+#else
+#define SLASH '/'
+#endif
 
 /* PSX max resolution is 640x512, but with enhancement it's 1024x512 */
 #define TV_PAL                      (33868800.0 / 677343.75) // 50.00238
@@ -77,79 +58,93 @@ int in_enable_vibration = 1;
 
 #define SAMPLE_RATE                 44100.0
 
-static int visible_height           = NTSC_HEIGHT;
-static int system_height            = NTSC_HEIGHT;
-
-static boolean update_geometry      = FALSE;
-static boolean update_timing        = FALSE;
-
-enum opt_aspect_ratio {
-    FORCE_4_3 = 0,
-    AUTO_CORRECT
+enum opt_aspect_ratio
+{
+   FORCE_4_3 = 0,
+   AUTO_CORRECT
 };
 
-static int option_aspect_ratio      = FORCE_4_3;
+static retro_video_refresh_t video_cb;
+static retro_input_poll_t input_poll_cb;
+static retro_input_state_t input_state_cb;
+static retro_environment_t environ_cb;
+static retro_audio_sample_batch_t audio_batch_cb;
+static struct retro_rumble_interface rumble;
 
-static void init_memcard(char *mcd_data)
+static void *vout_buf;
+static int vout_width, vout_height;
+static int vout_doffs_old, vout_fb_dirty;
+static bool vout_can_dupe;
+static bool duping_enable;
+
+static int plugins_opened;
+static int is_pal_mode;
+
+static int visible_height;
+static int system_height;
+
+static bool update_geometry;
+static bool update_timing;
+
+static int option_aspect_ratio;
+
+static char base_dir[PATH_MAX];
+
+/* forward declarations */
+static float get_aspect_ratio(void);
+
+/* memory card data */
+extern char Mcd1Data[MCD_SIZE];
+extern char McdDisable[2];
+
+/* PCSX ReARMed core calls and stuff */
+int in_type[2];                                       /* input types */
+int in_a1[2] = { 127, 127 }, in_a2[2] = { 127, 127 }; /* analog input states */
+int in_keystate;                                      /* digital input states */
+int in_enable_vibration = 1;                          /* 1 = enable rumble support, 0 = disables rumble */
+
+int open_invalid_time;
+int g_opts;
+
+void change_frame_Motionjpeg(int onoff)
 {
-    unsigned off = 0;
-    unsigned i;
-
-    memset(mcd_data, 0, MCD_SIZE);
-
-    mcd_data[off++] = 'M';
-    mcd_data[off++] = 'C';
-    off += 0x7d;
-    mcd_data[off++] = 0x0e;
-
-    for (i = 0; i < 15; i++) {
-        mcd_data[off++] = 0xa0;
-        off += 0x07;
-        mcd_data[off++] = 0xff;
-        mcd_data[off++] = 0xff;
-        off += 0x75;
-        mcd_data[off++] = 0xa0;
-    }
-
-    for (i = 0; i < 20; i++) {
-        mcd_data[off++] = 0xff;
-        mcd_data[off++] = 0xff;
-        mcd_data[off++] = 0xff;
-        mcd_data[off++] = 0xff;
-        off += 0x04;
-        mcd_data[off++] = 0xff;
-        mcd_data[off++] = 0xff;
-        off += 0x76;
-    }
 }
 
-static float get_aspect_ratio(void)
+void set_scenes(int scenes)
 {
-    float ret = (4.0f / 3.0f);
-    if (option_aspect_ratio == AUTO_CORRECT)
-    {
-        // from beetle psx:
-        // Calculate horizontal scaling in terms of gpu clock cycles
-        ret *= (2560.0 / 2800.0);
-        ret *= ((float)vout_height / (float)visible_height);
-    }
-    return ret;
 }
 
-static void get_system_av_info(struct retro_system_av_info *info)
+int SOUND_isPlaying(void)
 {
-    info->geometry.base_width   = VOUT_WIDTH;
-    info->geometry.base_height  = system_height;
-    info->geometry.max_width    = VOUT_MAX_WIDTH;
-    info->geometry.max_height   = VOUT_MAX_HEIGHT;
-    info->geometry.aspect_ratio = get_aspect_ratio();
-    info->timing.fps            = retro_get_region() ? TV_PAL : TV_NTSC;
-    info->timing.sample_rate    = SAMPLE_RATE;
+   return 0;
+}
+
+void set_bo_trg(int onoff, int ch)
+{
+}
+
+void *pl_prepare_screenshot(int *w, int *h, int *bpp)
+{
+   return NULL;
+}
+
+int make_file_name(void)
+{
+   return 0;
+}
+
+void swap_cd(void)
+{
+}
+
+int writepng(const char *fname, unsigned short *src, int w, int h)
+{
+   return 0;
 }
 
 static int vout_open(void)
 {
-    return 0;
+   return 0;
 }
 
 static void vout_set_mode(int w, int h, int raw_w, int raw_h, int bpp)
@@ -328,123 +323,7 @@ void out_register_libretro(struct out_driver *drv)
     drv->feed = snd_feed;
 }
 
-/* libretro */
-void retro_set_environment(retro_environment_t cb)
-{
-   static const struct retro_variable vars[] = {
-      { "pcsx_rearmed_frameskip", "Frameskip; 0|1|2|3" },
-      { "pcsx_rearmed_memcard2", "Enable Second Memory Card (Shared); disabled|enabled" },
-      { "pcsx_rearmed_region", "Region; Auto|NTSC|PAL" },
-      { "pcsx_rearmed_aspect_ratio", "Aspect Ratio; Auto|Force 4:3" },
-#ifndef DRC_DISABLE
-      { "pcsx_rearmed_drc", "Dynamic recompiler; enabled|disabled" },
-#endif
-#ifdef __ARM_NEON__
-      { "pcsx_rearmed_neon_interlace_enable", "Enable interlacing mode(s); disabled|enabled" },
-      { "pcsx_rearmed_neon_enhancement_enable", "Enhanced resolution (slow); disabled|enabled" },
-      { "pcsx_rearmed_neon_enhancement_no_main", "Enhanced resolution speed hack; disabled|enabled" },
-#endif
-      { "pcsx_rearmed_duping_enable", "Frame duping; on|off" },
-      { "pcsx_rearmed_spu_reverb", "Sound: Reverb; on|off" },
-      { "pcsx_rearmed_spu_interpolation", "Sound: Interpolation; simple|gaussian|cubic|off" },
-      { NULL, NULL },
-   };
-
-   static const struct retro_controller_description pad1[] = {
-      { "Standard Controller", RETRO_DEVICE_JOYPAD },
-      { "Analog Controller", RETRO_DEVICE_ANALOG },
-      { NULL, 0 },
-   };
-
-   static const struct retro_controller_description pad2[] = {
-      { "Standard Controller", RETRO_DEVICE_JOYPAD },
-      { NULL, 0 },
-   };
-
-   static const struct retro_controller_info ports[] = {
-      { pad1, 3 },
-      { pad2, 2 },
-      { NULL, 0 },
-   };
-
-   environ_cb = cb;
-
-   cb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, (void *)ports);
-   cb(RETRO_ENVIRONMENT_SET_VARIABLES, (void*)vars);
-}
-
-void retro_set_video_refresh(retro_video_refresh_t cb) { video_cb = cb; }
-void retro_set_audio_sample(retro_audio_sample_t cb) { (void)cb; }
-void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) { audio_batch_cb = cb; }
-void retro_set_input_poll(retro_input_poll_t cb) { input_poll_cb = cb; }
-void retro_set_input_state(retro_input_state_t cb) { input_state_cb = cb; }
-
-unsigned retro_api_version(void)
-{
-    return RETRO_API_VERSION;
-}
-
-static int retropad_to_psx_pad_type(unsigned port, unsigned device)
-{
-   int ret = 0;
-
-   switch (device)
-   {
-   case RETRO_DEVICE_JOYPAD:
-      SysPrintf("Player Port %d: Standard Controller\n", port + 1);
-      return PSE_PAD_TYPE_STANDARD;
-
-   case RETRO_DEVICE_ANALOG:
-      SysPrintf("Player Port %d: Analog Controller\n", port + 1);
-      return PSE_PAD_TYPE_ANALOGPAD;
-
-   case RETRO_DEVICE_NONE:
-      SysPrintf("Player Port %d: None\n", port + 1);
-      break;
-
-   default:
-      SysPrintf("Player Port %d: Unknown controller\n", port + 1);
-      break;
-   }
-   return ret;
-}
-
-void retro_set_controller_port_device(unsigned port, unsigned device)
-{
-   int type = in_type[port];
-
-   /* just 2 controller ports for now */
-   if (port >= 2)
-      return;
-
-   in_type[port] = retropad_to_psx_pad_type(port, device);
-
-   if (in_type[port] != type)
-      dfinput_activate();
-}
-
-void retro_get_system_info(struct retro_system_info *info)
-{
-    memset(info, 0, sizeof(*info));
-    info->library_name = "PCSX-ReARMed_Classic";
-    info->library_version = "r22";
-    info->valid_extensions = "bin|cue|img|mdf|pbp|toc|cbn|m3u";
-    info->need_fullpath = true;
-}
-
-void retro_get_system_av_info(struct retro_system_av_info *info)
-{
-    memset(info, 0, sizeof(*info));
-    get_system_av_info(info);
-}
-
-/* savestates */
-size_t retro_serialize_size(void)
-{
-    // it's currently 4380651-4397047 bytes,
-    // but have some reserved for future
-    return 0x440000;
-}
+/* static functions, helper functions */
 
 struct save_fp {
     char *buf;
@@ -523,44 +402,6 @@ static void save_close(void *file)
         // make sure we don't save trash in leftover space
         memset(fp->buf + fp->pos, 0, r_size - fp->pos);
     free(fp);
-}
-
-bool retro_serialize(void *data, size_t size)
-{
-    int ret = SaveState(data);
-    return ret == 0 ? true : false;
-}
-
-bool retro_unserialize(const void *data, size_t size)
-{
-    int ret = LoadState(data);
-    return ret == 0 ? true : false;
-}
-
-/* cheats */
-void retro_cheat_reset(void)
-{
-    ClearAllCheats();
-}
-
-void retro_cheat_set(unsigned index, bool enabled, const char *code)
-{
-    char buf[256];
-    int ret;
-
-    // cheat funcs are destructive, need a copy..
-    strncpy(buf, code, sizeof(buf));
-    buf[sizeof(buf) - 1] = 0;
-
-    if (index < NumCheats)
-        ret = EditCheat(index, "", buf);
-    else
-        ret = AddCheat("", buf);
-
-    if (ret != 0)
-        SysPrintf("Failed to set cheat %#u\n", index);
-    else if (index < NumCheats)
-        Cheats[index].Enabled = enabled;
 }
 
 /* multidisk support */
@@ -683,15 +524,6 @@ static struct retro_disk_control_callback disk_control = {
     .add_image_index = disk_add_image_index,
 };
 
-// just in case, maybe a win-rt port in the future?
-#ifdef _WIN32
-#define SLASH '\\'
-#else
-#define SLASH '/'
-#endif
-
-static char base_dir[PATH_MAX];
-
 static bool read_m3u(const char *file)
 {
     char line[PATH_MAX];
@@ -767,332 +599,238 @@ strcasestr(const char *s, const char*find)
 }
 #endif
 
-bool retro_load_game(const struct retro_game_info *info)
+static float get_aspect_ratio(void)
 {
-    size_t i;
-    bool is_m3u = (strcasestr(info->path, ".m3u") != NULL);
+    float ret = (4.0f / 3.0f);
+    if (option_aspect_ratio == AUTO_CORRECT)
+    {
+        // from beetle psx:
+        // Calculate horizontal scaling in terms of gpu clock cycles
+        ret *= (2560.0 / 2800.0);
+        ret *= ((float)vout_height / (float)visible_height);
+    }
+    return ret;
+}
 
-   struct retro_input_descriptor desc[] = {
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "D-Pad Left" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "D-Pad Up" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "D-Pad Down" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,     "Cross" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,     "Circle" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,     "Triangle" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,     "Square" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,     "L1" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,    "L2" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3,    "L3" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,     "R1" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,    "R2" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3,    "R3" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,    "Select" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
-      { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
-      { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
-      { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
-      { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+static void get_system_av_info(struct retro_system_av_info *info)
+{
+    info->geometry.base_width   = VOUT_WIDTH;
+    info->geometry.base_height  = system_height;
+    info->geometry.max_width    = VOUT_MAX_WIDTH;
+    info->geometry.max_height   = VOUT_MAX_HEIGHT;
+    info->geometry.aspect_ratio = get_aspect_ratio();
+    info->timing.fps            = is_pal_mode ? TV_PAL : TV_NTSC;
+    info->timing.sample_rate    = SAMPLE_RATE;
+}
 
+static int retropad_to_psx_pad_type(unsigned port, unsigned device)
+{
+   int ret = 0;
 
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "D-Pad Left" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "D-Pad Up" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "D-Pad Down" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,     "Cross" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,     "Circle" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,     "Triangle" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,     "Square" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,     "L1" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,    "L2" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3,    "L3" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,     "R1" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,    "R2" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3,    "R3" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,    "Select" },
-      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
-      { 1, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
-      { 1, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
-      { 1, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
-      { 1, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+   switch (device)
+   {
+   case RETRO_DEVICE_JOYPAD:
+      SysPrintf("Player Port %d: Standard Controller\n", port + 1);
+      return PSE_PAD_TYPE_STANDARD;
 
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "D-Pad Left" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "D-Pad Up" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "D-Pad Down" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,     "Cross" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,     "Circle" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,     "Triangle" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,     "Square" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,     "L1" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,    "L2" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3,    "L3" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,     "R1" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,    "R2" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3,    "R3" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,    "Select" },
-      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
-      { 2, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
-      { 2, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
-      { 2, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
-      { 2, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+   case RETRO_DEVICE_ANALOG:
+      SysPrintf("Player Port %d: Analog Controller\n", port + 1);
+      return PSE_PAD_TYPE_ANALOGPAD;
 
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "D-Pad Left" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "D-Pad Up" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "D-Pad Down" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,     "Cross" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,     "Circle" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,     "Triangle" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,     "Square" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,     "L1" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,    "L2" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3,    "L3" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,     "R1" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,    "R2" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3,    "R3" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,    "Select" },
-      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
-      { 3, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
-      { 3, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
-      { 3, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
-      { 3, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+   case RETRO_DEVICE_NONE:
+      SysPrintf("Player Port %d: None\n", port + 1);
+      break;
 
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "D-Pad Left" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "D-Pad Up" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "D-Pad Down" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,     "Cross" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,     "Circle" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,     "Triangle" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,     "Square" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,     "L1" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,    "L2" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3,    "L3" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,     "R1" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,    "R2" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3,    "R3" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,    "Select" },
-      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
-      { 4, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
-      { 4, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
-      { 4, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
-      { 4, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+   default:
+      SysPrintf("Player Port %d: Unknown controller\n", port + 1);
+      break;
+   }
+   return ret;
+}
 
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "D-Pad Left" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "D-Pad Up" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "D-Pad Down" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,     "Cross" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,     "Circle" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,     "Triangle" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,     "Square" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,     "L1" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,    "L2" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3,    "L3" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,     "R1" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,    "R2" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3,    "R3" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,    "Select" },
-      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
-      { 5, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
-      { 5, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
-      { 5, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
-      { 5, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
-
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "D-Pad Left" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "D-Pad Up" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "D-Pad Down" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,     "Cross" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,     "Circle" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,     "Triangle" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,     "Square" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,     "L1" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,    "L2" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3,    "L3" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,     "R1" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,    "R2" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3,    "R3" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,    "Select" },
-      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
-      { 6, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
-      { 6, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
-      { 6, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
-      { 6, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
-
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,  "D-Pad Left" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,    "D-Pad Up" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,  "D-Pad Down" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,     "Cross" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,     "Circle" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,     "Triangle" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,     "Square" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,     "L1" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,    "L2" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3,    "L3" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,     "R1" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,    "R2" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3,    "R3" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT,    "Select" },
-      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,    "Start" },
-      { 7, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
-      { 7, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
-      { 7, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
-      { 7, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
-
-      { 0 },
+static void update_input(void)
+{
+   static const unsigned short retro_psx_map[] = {
+      [RETRO_DEVICE_ID_JOYPAD_B] = 1 << DKEY_CROSS,
+      [RETRO_DEVICE_ID_JOYPAD_Y] = 1 << DKEY_SQUARE,
+      [RETRO_DEVICE_ID_JOYPAD_SELECT] = 1 << DKEY_SELECT,
+      [RETRO_DEVICE_ID_JOYPAD_START] = 1 << DKEY_START,
+      [RETRO_DEVICE_ID_JOYPAD_UP] = 1 << DKEY_UP,
+      [RETRO_DEVICE_ID_JOYPAD_DOWN] = 1 << DKEY_DOWN,
+      [RETRO_DEVICE_ID_JOYPAD_LEFT] = 1 << DKEY_LEFT,
+      [RETRO_DEVICE_ID_JOYPAD_RIGHT] = 1 << DKEY_RIGHT,
+      [RETRO_DEVICE_ID_JOYPAD_A] = 1 << DKEY_CIRCLE,
+      [RETRO_DEVICE_ID_JOYPAD_X] = 1 << DKEY_TRIANGLE,
+      [RETRO_DEVICE_ID_JOYPAD_L] = 1 << DKEY_L1,
+      [RETRO_DEVICE_ID_JOYPAD_R] = 1 << DKEY_R1,
+      [RETRO_DEVICE_ID_JOYPAD_L2] = 1 << DKEY_L2,
+      [RETRO_DEVICE_ID_JOYPAD_R2] = 1 << DKEY_R2,
+      [RETRO_DEVICE_ID_JOYPAD_L3] = 1 << DKEY_L3,
+      [RETRO_DEVICE_ID_JOYPAD_R3] = 1 << DKEY_R3,
    };
 
-   environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, desc);
+   unsigned i, port;
 
-#ifdef FRONTEND_SUPPORTS_RGB565
-    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_RGB565;
-    if (environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt)) {
-        SysPrintf("RGB565 supported, using it\n");
-    }
-#endif
+   #define RETRO_PSX_MAP_LEN (sizeof(retro_psx_map) / sizeof(retro_psx_map[0]))
 
-    if (info == NULL || info->path == NULL) {
-        SysPrintf("info->path required\n");
+   in_keystate = 0;
+   for (port = 0; port < 2; port++)
+   {
+      int type = in_type[port];
+      int input_buf = 0;
+      switch (type)
+      {
+      case PSE_PAD_TYPE_STANDARD:
+      case PSE_PAD_TYPE_ANALOGPAD:
+         for (i = 0; i < RETRO_PSX_MAP_LEN; i++)
+            if (input_state_cb(port, RETRO_DEVICE_JOYPAD, 0, i))
+               input_buf |= retro_psx_map[i];
+         break;
+      }
+      in_keystate |= (input_buf & 0xFFFF) << (port << 16);
+   }
+
+   if (in_type[0] == PSE_PAD_TYPE_ANALOGPAD)
+   {
+      in_a1[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
+      in_a1[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
+      in_a2[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
+      in_a2[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
+   }
+}
+
+static bool try_use_bios(const char *path)
+{
+    FILE *f;
+    long size;
+    const char *name;
+
+    f = fopen(path, "rb");
+    if (f == NULL)
         return false;
-    }
 
-    if (plugins_opened) {
-        ClosePlugins();
-        plugins_opened = 0;
-    }
+    fseek(f, 0, SEEK_END);
+    size = ftell(f);
+    fclose(f);
 
-    for (i = 0; i < sizeof(disks) / sizeof(disks[0]); i++) {
-        if (disks[i].fname != NULL) {
-            free(disks[i].fname);
-            disks[i].fname = NULL;
-        }
-        disks[i].internal_index = 0;
-    }
-
-    disk_current_index = 0;
-    extract_directory(base_dir, info->path, sizeof(base_dir));
-
-    if (is_m3u) {
-        if (!read_m3u(info->path)) {
-            SysPrintf("failed to read m3u file\n");
-            return false;
-        }
-    } else {
-        disk_count = 1;
-        disks[0].fname = strdup(info->path);
-    }
-
-    set_cd_image(disks[0].fname);
-
-    /* have to reload after set_cd_image for correct cdr plugin */
-    if (LoadPlugins() == -1) {
-        SysPrintf("failed to load plugins\n");
+    if (size != 512 * 1024)
         return false;
-    }
 
-    plugins_opened = 1;
-    NetOpened = 0;
-
-    if (OpenPlugins() == -1) {
-        SysPrintf("failed to open plugins\n");
-        return false;
-    }
-
-    plugin_call_rearmed_cbs();
-    dfinput_activate();
-
-    Config.PsxAuto = 1;
-    if (CheckCdrom() == -1) {
-        SysPrintf("unsupported/invalid CD image: %s\n", info->path);
-        return false;
-    }
-
-    SysReset();
-
-    if (LoadCdrom() == -1) {
-        SysPrintf("could not load CD-ROM!\n");
-        return false;
-    }
-    emu_on_new_cd(0);
-
-    // multidisk images
-    if (!is_m3u) {
-        disk_count = cdrIsoMultidiskCount < 8 ? cdrIsoMultidiskCount : 8;
-        for (i = 1; i < sizeof(disks) / sizeof(disks[0]) && i < cdrIsoMultidiskCount; i++) {
-            disks[i].fname = strdup(info->path);
-            disks[i].internal_index = i;
-        }
-    }
-
-    vout_width = VOUT_WIDTH;
-    vout_height = VOUT_HEIGHT;
-
+    name = strrchr(path, SLASH);
+    if (name++ == NULL)
+        name = path;
+    snprintf(Config.Bios, sizeof(Config.Bios), "%s", name);
     return true;
 }
 
-bool retro_load_game_special(unsigned game_type, const struct retro_game_info *info, size_t num_info)
+#if 1
+#include <sys/types.h>
+#include <dirent.h>
+
+static bool find_any_bios(const char *dirpath, char *path, size_t path_size)
 {
-    return false;
+    DIR *dir;
+    struct dirent *ent;
+    bool ret = false;
+
+    dir = opendir(dirpath);
+    if (dir == NULL)
+        return false;
+
+    while ((ent = readdir(dir))) {
+        if (strncasecmp(ent->d_name, "scph", 4) != 0)
+            continue;
+
+        snprintf(path, path_size, "%s/%s", dirpath, ent->d_name);
+        ret = try_use_bios(path);
+        if (ret)
+            break;
+    }
+    closedir(dir);
+    return ret;
+}
+#else
+#define find_any_bios(...) false
+#endif
+
+static void init_memcard(char *mcd_data)
+{
+    unsigned off = 0;
+    unsigned i;
+
+    memset(mcd_data, 0, MCD_SIZE);
+
+    mcd_data[off++] = 'M';
+    mcd_data[off++] = 'C';
+    off += 0x7d;
+    mcd_data[off++] = 0x0e;
+
+    for (i = 0; i < 15; i++) {
+        mcd_data[off++] = 0xa0;
+        off += 0x07;
+        mcd_data[off++] = 0xff;
+        mcd_data[off++] = 0xff;
+        off += 0x75;
+        mcd_data[off++] = 0xa0;
+    }
+
+    for (i = 0; i < 20; i++) {
+        mcd_data[off++] = 0xff;
+        mcd_data[off++] = 0xff;
+        mcd_data[off++] = 0xff;
+        mcd_data[off++] = 0xff;
+        off += 0x04;
+        mcd_data[off++] = 0xff;
+        mcd_data[off++] = 0xff;
+        off += 0x76;
+    }
 }
 
-void retro_unload_game(void)
+static int init_memcards(void)
 {
+   int ret = 0;
+   const char *dir;
+   struct retro_variable var = { .key = "pcsx_rearmed_memcard2", .value = NULL };
+   static const char CARD2_FILE[] = "pcsx-card2.mcd";
+
+   // Memcard2 will be handled and is re-enabled if needed using core
+   // operations.
+   // Memcard1 is handled by libretro, doing this will set core to
+   // skip file io operations for memcard1 like SaveMcd
+   snprintf(Config.Mcd1, sizeof(Config.Mcd1), "none");
+   snprintf(Config.Mcd2, sizeof(Config.Mcd2), "none");
+   init_memcard(Mcd1Data);
+   // Memcard 2 is managed by the emulator on the filesystem,
+   // There is no need to initialize Mcd2Data like Mcd1Data.
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      SysPrintf("Memcard 2: %s\n", var.value);
+      if (memcmp(var.value, "enabled", 7) == 0)
+      {
+         if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) && dir)
+         {
+            if (strlen(dir) + strlen(CARD2_FILE) + 2 > sizeof(Config.Mcd2))
+            {
+               SysPrintf("Path '%s' is too long. Cannot use memcard 2. Use a shorter path.\n", dir);
+               ret = -1;
+            }
+            else
+            {
+               McdDisable[1] = 0;
+               snprintf(Config.Mcd2, sizeof(Config.Mcd2), "%s/%s", dir, CARD2_FILE);
+               SysPrintf("Use memcard 2: %s\n", Config.Mcd2);
+            }
+         }
+         else
+         {
+            SysPrintf("Could not get save directory! Could not create memcard 2.");
+            ret = -1;
+         }
+      }
+   }
+   return ret;
 }
-
-unsigned retro_get_region(void)
-{
-    return is_pal_mode ? RETRO_REGION_PAL : RETRO_REGION_NTSC;
-}
-
-void *retro_get_memory_data(unsigned id)
-{
-    if (id == RETRO_MEMORY_SAVE_RAM)
-        return Mcd1Data;
-
-    if (id == RETRO_MEMORY_SYSTEM_RAM)
-        return psxM;
-
-    return NULL;
-}
-
-size_t retro_get_memory_size(unsigned id)
-{
-    if (id == RETRO_MEMORY_SAVE_RAM)
-        return MCD_SIZE;
-
-    if (id == RETRO_MEMORY_SYSTEM_RAM)
-        return 0x200000;
-
-    return 0;
-}
-
-void retro_reset(void)
-{
-    SysReset();
-}
-
-static const unsigned short retro_psx_map[] = {
-    [RETRO_DEVICE_ID_JOYPAD_B]	= 1 << DKEY_CROSS,
-    [RETRO_DEVICE_ID_JOYPAD_Y]	= 1 << DKEY_SQUARE,
-    [RETRO_DEVICE_ID_JOYPAD_SELECT]	= 1 << DKEY_SELECT,
-    [RETRO_DEVICE_ID_JOYPAD_START]	= 1 << DKEY_START,
-    [RETRO_DEVICE_ID_JOYPAD_UP]	= 1 << DKEY_UP,
-    [RETRO_DEVICE_ID_JOYPAD_DOWN]	= 1 << DKEY_DOWN,
-    [RETRO_DEVICE_ID_JOYPAD_LEFT]	= 1 << DKEY_LEFT,
-    [RETRO_DEVICE_ID_JOYPAD_RIGHT]	= 1 << DKEY_RIGHT,
-    [RETRO_DEVICE_ID_JOYPAD_A]	= 1 << DKEY_CIRCLE,
-    [RETRO_DEVICE_ID_JOYPAD_X]	= 1 << DKEY_TRIANGLE,
-    [RETRO_DEVICE_ID_JOYPAD_L]	= 1 << DKEY_L1,
-    [RETRO_DEVICE_ID_JOYPAD_R]	= 1 << DKEY_R1,
-    [RETRO_DEVICE_ID_JOYPAD_L2]	= 1 << DKEY_L2,
-    [RETRO_DEVICE_ID_JOYPAD_R2]	= 1 << DKEY_R2,
-    [RETRO_DEVICE_ID_JOYPAD_L3]	= 1 << DKEY_L3,
-    [RETRO_DEVICE_ID_JOYPAD_R3]	= 1 << DKEY_R3,
-};
-#define RETRO_PSX_MAP_LEN (sizeof(retro_psx_map) / sizeof(retro_psx_map[0]))
 
 static void update_variables(bool in_flight)
 {
@@ -1244,41 +982,466 @@ static void update_variables(bool in_flight)
          GPU_open(&gpuDisp, "PCSX", NULL);
       }
 
-      dfinput_activate();
+      // dfinput_activate();
    }
 }
 
-static void update_input(void)
+/* libretro */
+RETRO_API void retro_set_environment(retro_environment_t cb)
 {
-    unsigned i, port;
+   static const struct retro_variable vars[] = {
+      { "pcsx_rearmed_frameskip", "Frameskip; 0|1|2|3" },
+      { "pcsx_rearmed_memcard2", "Enable Second Memory Card (Shared); disabled|enabled" },
+      { "pcsx_rearmed_region", "Region; Auto|NTSC|PAL" },
+      { "pcsx_rearmed_aspect_ratio", "Aspect Ratio; Auto|Force 4:3" },
+#ifndef DRC_DISABLE
+      { "pcsx_rearmed_drc", "Dynamic recompiler; enabled|disabled" },
+#endif
+#ifdef __ARM_NEON__
+      { "pcsx_rearmed_neon_interlace_enable", "Enable interlacing mode(s); disabled|enabled" },
+      { "pcsx_rearmed_neon_enhancement_enable", "Enhanced resolution (slow); disabled|enabled" },
+      { "pcsx_rearmed_neon_enhancement_no_main", "Enhanced resolution speed hack; disabled|enabled" },
+#endif
+      { "pcsx_rearmed_duping_enable", "Frame duping; on|off" },
+      { "pcsx_rearmed_spu_reverb", "Sound: Reverb; on|off" },
+      { "pcsx_rearmed_spu_interpolation", "Sound: Interpolation; simple|gaussian|cubic|off" },
+      { NULL, NULL },
+   };
 
-    in_keystate = 0;
-    for (port = 0; port < 2; port++)
-    {
-        int type = in_type[port];
-        int input_buf = 0;
-        switch (type)
-        {
-        case PSE_PAD_TYPE_STANDARD:
-        case PSE_PAD_TYPE_ANALOGPAD:
-            for (i = 0; i < RETRO_PSX_MAP_LEN; i++)
-                if (input_state_cb(port, RETRO_DEVICE_JOYPAD, 0, i))
-                    input_buf |= retro_psx_map[i];
-            break;
-        }
-        in_keystate |= (input_buf & 0xFFFF) << (port << 16);
-    }
+   static const struct retro_controller_description pad1[] = {
+      { "Standard Controller", RETRO_DEVICE_JOYPAD },
+      { "Analog Controller", RETRO_DEVICE_ANALOG },
+      { NULL, 0 },
+   };
 
-    if (in_type[0] == PSE_PAD_TYPE_ANALOGPAD)
-    {
-        in_a1[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
-        in_a1[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
-        in_a2[0] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X) / 256) + 128;
-        in_a2[1] = (input_state_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) / 256) + 128;
-    }
+   static const struct retro_controller_description pad2[] = {
+      { "Standard Controller", RETRO_DEVICE_JOYPAD },
+      { NULL, 0 },
+   };
+
+   static const struct retro_controller_info ports[] = {
+      { pad1, 3 },
+      { pad2, 2 },
+      { NULL, 0 },
+   };
+
+   environ_cb = cb;
+
+   cb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, (void *)ports);
+   cb(RETRO_ENVIRONMENT_SET_VARIABLES, (void*)vars);
 }
 
-void retro_run(void)
+RETRO_API void retro_set_video_refresh(retro_video_refresh_t cb)
+{
+   video_cb = cb;
+}
+
+RETRO_API void retro_set_audio_sample(retro_audio_sample_t cb)
+{
+   (void)cb;
+}
+
+RETRO_API void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb)
+{
+   audio_batch_cb = cb;
+}
+
+RETRO_API void retro_set_input_poll(retro_input_poll_t cb)
+{
+   input_poll_cb = cb;
+}
+
+RETRO_API void retro_set_input_state(retro_input_state_t cb)
+{
+   input_state_cb = cb;
+}
+
+RETRO_API unsigned retro_api_version(void)
+{
+    return RETRO_API_VERSION;
+}
+
+RETRO_API void retro_set_controller_port_device(unsigned port, unsigned device)
+{
+   int type = in_type[port];
+
+   /* just 2 controller ports for now */
+   if (port >= 2)
+      return;
+
+   in_type[port] = retropad_to_psx_pad_type(port, device);
+
+   dfinput_activate();
+}
+
+RETRO_API void retro_get_system_info(struct retro_system_info *info)
+{
+    memset(info, 0, sizeof(*info));
+    info->library_name = "PCSX-ReARMed_Classic";
+    info->library_version = "r22";
+    info->valid_extensions = "bin|cue|img|mdf|pbp|toc|cbn|m3u";
+    info->need_fullpath = true;
+}
+
+RETRO_API void retro_get_system_av_info(struct retro_system_av_info *info)
+{
+    memset(info, 0, sizeof(*info));
+    get_system_av_info(info);
+}
+
+/* savestates */
+RETRO_API size_t retro_serialize_size(void)
+{
+    // it's currently 4380651-4397047 bytes,
+    // but have some reserved for future
+    return 0x440000;
+}
+
+RETRO_API bool retro_serialize(void *data, size_t size)
+{
+    int ret = SaveState(data);
+    return ret == 0 ? true : false;
+}
+
+RETRO_API bool retro_unserialize(const void *data, size_t size)
+{
+    int ret = LoadState(data);
+    return ret == 0 ? true : false;
+}
+
+/* cheats */
+RETRO_API void retro_cheat_reset(void)
+{
+    ClearAllCheats();
+}
+
+RETRO_API void retro_cheat_set(unsigned index, bool enabled, const char *code)
+{
+    char buf[256];
+    int ret;
+
+    // cheat funcs are destructive, need a copy..
+    strncpy(buf, code, sizeof(buf));
+    buf[sizeof(buf) - 1] = 0;
+
+    if (index < NumCheats)
+        ret = EditCheat(index, "", buf);
+    else
+        ret = AddCheat("", buf);
+
+    if (ret != 0)
+        SysPrintf("Failed to set cheat %#u\n", index);
+    else if (index < NumCheats)
+        Cheats[index].Enabled = enabled;
+}
+
+RETRO_API bool retro_load_game(const struct retro_game_info *info)
+{
+   struct retro_input_descriptor desc[] = {
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "Cross" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "Circle" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "Triangle" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "Square" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L1" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2, "L2" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "L3" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R1" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2, "R2" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3, "R3" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start" },
+      { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
+      { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
+      { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
+      { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "Cross" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "Circle" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "Triangle" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "Square" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L1" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2, "L2" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "L3" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R1" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2, "R2" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3, "R3" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select" },
+      { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start" },
+      { 1, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
+      { 1, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
+      { 1, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
+      { 1, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "Cross" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "Circle" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "Triangle" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "Square" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L1" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2, "L2" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "L3" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R1" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2, "R2" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3, "R3" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select" },
+      { 2, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start" },
+      { 2, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
+      { 2, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
+      { 2, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
+      { 2, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "Cross" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "Circle" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "Triangle" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "Square" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L1" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2, "L2" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "L3" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R1" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2, "R2" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3, "R3" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select" },
+      { 3, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start" },
+      { 3, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
+      { 3, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
+      { 3, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
+      { 3, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "Cross" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "Circle" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "Triangle" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "Square" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L1" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2, "L2" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "L3" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R1" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2, "R2" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3, "R3" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select" },
+      { 4, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start" },
+      { 4, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
+      { 4, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
+      { 4, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
+      { 4, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "Cross" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "Circle" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "Triangle" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "Square" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L1" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2, "L2" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "L3" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R1" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2, "R2" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3, "R3" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select" },
+      { 5, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start" },
+      { 5, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
+      { 5, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
+      { 5, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
+      { 5, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "Cross" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "Circle" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "Triangle" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "Square" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L1" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2, "L2" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "L3" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R1" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2, "R2" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3, "R3" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select" },
+      { 6, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start" },
+      { 6, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
+      { 6, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
+      { 6, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
+      { 6, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "Cross" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "Circle" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "Triangle" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "Square" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L1" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2, "L2" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "L3" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R1" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2, "R2" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3, "R3" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select" },
+      { 7, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start" },
+      { 7, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Left Analog X" },
+      { 7, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Left Analog Y" },
+      { 7, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" },
+      { 7, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
+
+      { 0 },
+   };
+
+   size_t i;
+   bool is_m3u = (strcasestr(info->path, ".m3u") != NULL);
+
+   environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, desc);
+
+#ifdef FRONTEND_SUPPORTS_RGB565
+    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_RGB565;
+    if (environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt)) {
+        SysPrintf("RGB565 supported, using it\n");
+    }
+#endif
+
+    if (info == NULL || info->path == NULL) {
+        SysPrintf("info->path required\n");
+        return false;
+    }
+
+    if (plugins_opened) {
+        ClosePlugins();
+        plugins_opened = 0;
+    }
+
+    for (i = 0; i < sizeof(disks) / sizeof(disks[0]); i++) {
+        if (disks[i].fname != NULL) {
+            free(disks[i].fname);
+            disks[i].fname = NULL;
+        }
+        disks[i].internal_index = 0;
+    }
+
+    disk_current_index = 0;
+    extract_directory(base_dir, info->path, sizeof(base_dir));
+
+    if (is_m3u) {
+        if (!read_m3u(info->path)) {
+            SysPrintf("failed to read m3u file\n");
+            return false;
+        }
+    } else {
+        disk_count = 1;
+        disks[0].fname = strdup(info->path);
+    }
+
+    set_cd_image(disks[0].fname);
+
+    /* have to reload after set_cd_image for correct cdr plugin */
+    if (LoadPlugins() == -1) {
+        SysPrintf("failed to load plugins\n");
+        return false;
+    }
+
+    plugins_opened = 1;
+    NetOpened = 0;
+
+    if (OpenPlugins() == -1) {
+        SysPrintf("failed to open plugins\n");
+        return false;
+    }
+
+    plugin_call_rearmed_cbs();
+    dfinput_activate();
+
+    Config.PsxAuto = 1;
+    if (CheckCdrom() == -1) {
+        SysPrintf("unsupported/invalid CD image: %s\n", info->path);
+        return false;
+    }
+
+    SysReset();
+
+    if (LoadCdrom() == -1) {
+        SysPrintf("could not load CD-ROM!\n");
+        return false;
+    }
+    emu_on_new_cd(0);
+
+    // multidisk images
+    if (!is_m3u) {
+        disk_count = cdrIsoMultidiskCount < 8 ? cdrIsoMultidiskCount : 8;
+        for (i = 1; i < sizeof(disks) / sizeof(disks[0]) && i < cdrIsoMultidiskCount; i++) {
+            disks[i].fname = strdup(info->path);
+            disks[i].internal_index = i;
+        }
+    }
+
+    vout_width = VOUT_WIDTH;
+    vout_height = VOUT_HEIGHT;
+
+    return true;
+}
+
+RETRO_API bool retro_load_game_special(unsigned game_type, const struct retro_game_info *info, size_t num_info)
+{
+    return false;
+}
+
+RETRO_API void retro_unload_game(void)
+{
+}
+
+RETRO_API unsigned retro_get_region(void)
+{
+    return is_pal_mode ? RETRO_REGION_PAL : RETRO_REGION_NTSC;
+}
+
+RETRO_API void *retro_get_memory_data(unsigned id)
+{
+    if (id == RETRO_MEMORY_SAVE_RAM)
+        return Mcd1Data;
+
+    if (id == RETRO_MEMORY_SYSTEM_RAM)
+        return psxM;
+
+    return NULL;
+}
+
+RETRO_API size_t retro_get_memory_size(unsigned id)
+{
+    if (id == RETRO_MEMORY_SAVE_RAM)
+        return MCD_SIZE;
+
+    if (id == RETRO_MEMORY_SYSTEM_RAM)
+        return 0x200000;
+
+    return 0;
+}
+
+RETRO_API void retro_reset(void)
+{
+    SysReset();
+}
+
+RETRO_API void retro_run(void)
 {
     bool updated = false;
 
@@ -1314,113 +1477,13 @@ void retro_run(void)
     vout_fb_dirty = 0;
 }
 
-static bool try_use_bios(const char *path)
-{
-    FILE *f;
-    long size;
-    const char *name;
-
-    f = fopen(path, "rb");
-    if (f == NULL)
-        return false;
-
-    fseek(f, 0, SEEK_END);
-    size = ftell(f);
-    fclose(f);
-
-    if (size != 512 * 1024)
-        return false;
-
-    name = strrchr(path, SLASH);
-    if (name++ == NULL)
-        name = path;
-    snprintf(Config.Bios, sizeof(Config.Bios), "%s", name);
-    return true;
-}
-
-#if 1
-#include <sys/types.h>
-#include <dirent.h>
-
-static bool find_any_bios(const char *dirpath, char *path, size_t path_size)
-{
-    DIR *dir;
-    struct dirent *ent;
-    bool ret = false;
-
-    dir = opendir(dirpath);
-    if (dir == NULL)
-        return false;
-
-    while ((ent = readdir(dir))) {
-        if (strncasecmp(ent->d_name, "scph", 4) != 0)
-            continue;
-
-        snprintf(path, path_size, "%s/%s", dirpath, ent->d_name);
-        ret = try_use_bios(path);
-        if (ret)
-            break;
-    }
-    closedir(dir);
-    return ret;
-}
-#else
-#define find_any_bios(...) false
-#endif
-
 static void check_system_specs(void)
 {
    unsigned level = 6;
    environ_cb(RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL, &level);
 }
 
-static int init_memcards(void)
-{
-   int ret = 0;
-   const char *dir;
-   struct retro_variable var = { .key = "pcsx_rearmed_memcard2", .value = NULL };
-   static const char CARD2_FILE[] = "pcsx-card2.mcd";
-
-   // Memcard2 will be handled and is re-enabled if needed using core
-   // operations.
-   // Memcard1 is handled by libretro, doing this will set core to
-   // skip file io operations for memcard1 like SaveMcd
-   snprintf(Config.Mcd1, sizeof(Config.Mcd1), "none");
-   snprintf(Config.Mcd2, sizeof(Config.Mcd2), "none");
-   init_memcard(Mcd1Data);
-   // Memcard 2 is managed by the emulator on the filesystem,
-   // There is no need to initialize Mcd2Data like Mcd1Data.
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      SysPrintf("Memcard 2: %s\n", var.value);
-      if (memcmp(var.value, "enabled", 7) == 0)
-      {
-         if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) && dir)
-         {
-            if (strlen(dir) + strlen(CARD2_FILE) + 2 > sizeof(Config.Mcd2))
-            {
-               SysPrintf("Path '%s' is too long. Cannot use memcard 2. Use a shorter path.\n", dir);
-               ret = -1;
-            }
-            else
-            {
-               McdDisable[1] = 0;
-               snprintf(Config.Mcd2, sizeof(Config.Mcd2), "%s/%s", dir, CARD2_FILE);
-               SysPrintf("Use memcard 2: %s\n", Config.Mcd2);
-            }
-         }
-         else
-         {
-            SysPrintf("Could not get save directory! Could not create memcard 2.");
-            ret = -1;
-         }
-      }
-   }
-   return ret;
-}
-
-void retro_init(void)
+RETRO_API void retro_init(void)
 {
     const char *bios[] = { "scph1001", "scph5501", "scph7001" };
     const char *dir;
@@ -1502,49 +1565,9 @@ void retro_init(void)
     check_system_specs();
 }
 
-void retro_deinit(void)
+RETRO_API void retro_deinit(void)
 {
     SysClose();
     free(vout_buf);
     vout_buf = NULL;
-}
-
-int open_invalid_time;
-int g_opts;
-
-// dummy funcs
-void change_frame_Motionjpeg(int onoff)
-{
-}
-
-void set_scenes(int scenes)
-{
-}
-
-int SOUND_isPlaying(void)
-{
-    return 0;
-}
-
-void set_bo_trg(int onoff, int ch)
-{
-}
-
-void *pl_prepare_screenshot(int *w, int *h, int *bpp)
-{
-    return NULL;
-}
-
-int make_file_name(void)
-{
-    return 0;
-}
-
-void swap_cd(void)
-{
-}
-
-int writepng(const char *fname, unsigned short *src, int w, int h)
-{
-    return 0;
 }
