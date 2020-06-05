@@ -572,7 +572,7 @@ void set_accel_multipliers()
 #include <gdk/gdkx.h>
 int maemo_init(int *argc, char ***argv)
 {
-	osso = osso_initialize("pcsxrearmed", PACKAGE_VERSION, FALSE, NULL);
+	osso = osso_initialize("pcsxrearmed", PCSX_VERSION, FALSE, NULL);
 
 	DBusConnection* system_bus = (DBusConnection*)osso_get_sys_dbus_connection(osso);
     dbus_bus_add_match(system_bus, DBUS_RULE_CALL_INCOMING, NULL);
