@@ -1022,9 +1022,11 @@ static void zlib_close(void *file)
 	gzclose(file);
 }
 
+#ifndef HAVE_LIBRETRO
 struct PcsxSaveFuncs SaveFuncs = {
 	zlib_open, zlib_read, zlib_write, zlib_seek, zlib_close
 };
+#endif
 
 static const char PcsxHeader[32] = "STv4 PCSX v" PACKAGE_VERSION;
 
