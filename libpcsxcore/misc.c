@@ -992,7 +992,7 @@ int Load(const char *ExePath) {
 static void *fadein(void* param) {
 	SPU_fadein();
 
-	return;
+	return 0; /* what should be return value here? */
 }
 
 // STATES
